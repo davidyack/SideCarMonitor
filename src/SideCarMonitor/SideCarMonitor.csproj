@@ -24,6 +24,7 @@
     <PackageReference Include="Azure.Identity" Version="1.21.0" />
     <PackageReference Include="Microsoft.CognitiveServices.Speech" Version="1.53.1" />
     <PackageReference Include="Microsoft.Mxc.Sdk" Version="1.1.0" />
+    <PackageReference Include="Microsoft.Playwright" Version="1.65.1" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.6.5" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2705" />
     <PackageReference Include="LibVLCSharp.WinUI" Version="3.10.2" />

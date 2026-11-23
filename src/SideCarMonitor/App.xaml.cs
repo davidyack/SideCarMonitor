@@ -36,6 +36,36 @@ public partial class App : Application
             return;
         }
 
+        // LinkedIn setup: "--linkedin-login" opens the dedicated Chrome profile for you to sign in once;
+        // "--linkedin-test <out.json>" reads the feed once and writes what it found (for checking the reader).
+        var cl = Environment.GetCommandLineArgs();
+        if (cl.Contains("--linkedin-login", StringComparer.OrdinalIgnoreCase) || cl.Contains("--linkedin-test", StringComparer.OrdinalIgnoreCase))
+        {
+            _ = Task.Run(async () =>
+            {
+                var log = Path.Combine(Path.GetDirectoryName(TasksPath)!, "linkedin.log");
+                try
+                {
+                    if (cl.Contains("--linkedin-login", StringComparer.OrdinalIgnoreCase))
+                        File.AppendAllText(log, $"{DateTimeOffset.Now:u} login {(await Services.LinkedInReader.LoginAsync() ? "ok" : "not completed")}\n");
+                    else
+                    {
+                        var posts = await Services.LinkedInReader.ReadFeedAsync();
+                        var outPath = cl.SkipWhile(a => !a.Equals("--linkedin-test", StringComparison.OrdinalIgnoreCase)).Skip(1).FirstOrDefault()
+                                      ?? Path.Combine(Path.GetTempPath(), "linkedin-test.json");
+                        File.WriteAllText(outPath, System.Text.Json.JsonSerializer.Serialize(posts, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+                        File.AppendAllText(log, $"{DateTimeOffset.Now:u} test read {posts.Count} posts\n");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    File.AppendAllText(log, $"{DateTimeOffset.Now:u} {ex.GetType().Name}: {ex.Message}\n");
+                }
+                Environment.Exit(0);
+            });
+            return;
+        }
+
         var (settings, createdNew) = AppSettings.Load();
         UiScale.Apply(Resources, settings.Display.UiScale);
         _window = new MainWindow(settings, createdNew);
