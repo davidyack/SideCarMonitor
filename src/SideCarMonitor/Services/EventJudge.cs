@@ -188,6 +188,34 @@ public sealed class EventJudge(Uri endpoint, string deployment, TokenCredential 
         return Noul(answers?["odd"]);
     }
 
+    /// <summary>
+    /// Probability (0..1) that the user would want to read this LinkedIn post. The user's own recent Noise / Not noise
+    /// labels come in the state as examples, which is how the tile learns.
+    /// </summary>
+    public async Task<double> LinkedInSignalAsync(JsonObject post, CancellationToken ct = default)
+    {
+        var body = new JsonObject
+        {
+            ["model"] = deployment,
+            ["state"] = post,
+            ["questions"] = new JsonObject
+            {
+                ["signal"] = new JsonObject
+                {
+                    ["type"] = "noul",
+                    ["instructions"] = "Would the user want to read this LinkedIn post from their feed? Follow users_own_labels most: " +
+                        "WANTS examples show what they value and NOISE examples what they skip; similar posts or the same authors should be " +
+                        "treated the same way. Without a clear match, substantive posts (real news, product or technical insight, " +
+                        "thoughtful opinions from people in their field) are signal; ads, engagement bait, generic motivation, " +
+                        "self-promotion, certification or 'I'm hiring' announcements from strangers, and recycled hype are noise.",
+                    ["criteria"] = new JsonObject { ["true"] = "Worth reading", ["false"] = "Noise" },
+                },
+            },
+        };
+        var answers = await PostAsync(body, ct);
+        return Noul(answers?["signal"]);
+    }
+
     /// <summary>Sends one request (one at a time, backing off on 429) and returns the "answers" object.</summary>
     private async Task<JsonNode?> PostAsync(JsonObject body, CancellationToken ct)
     {

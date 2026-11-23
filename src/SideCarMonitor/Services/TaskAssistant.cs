@@ -202,7 +202,8 @@ public sealed class TaskAssistant : IDisposable
         // Who is asking? Your chat turns (kiosk panel, phone) act for you; background reviews act as the assistant,
         // and only on the task under review. Internal end-of-conversation turns can only read.
         var isReview = call.Turn.StartsWith(ReviewPrefix);
-        var actor = isReview || call.Turn.StartsWith("end-") ? Actor.Assistant : Actor.User;
+        // Background turns the kiosk starts for other features (e.g. "li-" LinkedIn digests) can only read tasks.
+        var actor = isReview || call.Turn.StartsWith("end-") || call.Turn.StartsWith("li-") ? Actor.Assistant : Actor.User;
         _reviewTaskByTurn.TryGetValue(call.Turn, out var reviewTask);
         var readOnly = call.Name is "tasks_list" or "task_get";
         if (actor == Actor.Assistant && !readOnly)

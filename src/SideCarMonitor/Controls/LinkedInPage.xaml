@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="SideCarMonitor.Controls.LinkedInPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Grid Background="{StaticResource KioskBackground}" Padding="{StaticResource PagePadding}" RowSpacing="{StaticResource Gap}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Header: Home, title + last run, tabs, Run now -->
+        <Grid ColumnSpacing="{StaticResource Gap}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Button Click="Home_Click" Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}"
+                    CornerRadius="{StaticResource SmallCorner}" FontSize="{StaticResource FontBody}" AutomationProperties.Name="Home">
+                <StackPanel Orientation="Horizontal" Spacing="{StaticResource Gap}">
+                    <FontIcon Glyph="&#xE80F;" FontSize="{StaticResource FontIcon}" />
+                    <TextBlock Text="Home" VerticalAlignment="Center" />
+                </StackPanel>
+            </Button>
+            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                <TextBlock Text="LinkedIn" FontSize="{StaticResource FontTitle}" FontWeight="SemiBold" />
+                <TextBlock x:Name="SubtitleText" FontSize="{StaticResource FontCaption}" Foreground="{StaticResource MutedText}" TextTrimming="CharacterEllipsis" />
+            </StackPanel>
+            <StackPanel x:Name="Tabs" Grid.Column="2" Orientation="Horizontal" Spacing="{StaticResource SmallGap}">
+                <Button x:Name="SignalTab" Tag="signal" Click="Tab_Click" FontSize="{StaticResource FontBody}" Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}" />
+                <Button x:Name="NoiseTab" Tag="noise" Click="Tab_Click" FontSize="{StaticResource FontBody}" Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}" />
+            </StackPanel>
+            <Button x:Name="RunButton" Grid.Column="3" Click="Run_Click" Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}"
+                    CornerRadius="{StaticResource SmallCorner}" FontSize="{StaticResource FontBody}" Background="{StaticResource TileCobalt}" Foreground="White">
+                <StackPanel Orientation="Horizontal" Spacing="{StaticResource Gap}">
+                    <FontIcon Glyph="&#xE72C;" FontSize="{StaticResource FontIcon}" />
+                    <TextBlock Text="Run now" VerticalAlignment="Center" />
+                </StackPanel>
+            </Button>
+        </Grid>
+
+        <Grid Grid.Row="1" ColumnSpacing="{StaticResource Gap}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="3*" />
+                <ColumnDefinition Width="2*" />
+            </Grid.ColumnDefinitions>
+            <ScrollViewer x:Name="ListScroll">
+                <StackPanel x:Name="PostsPanel" Spacing="{StaticResource SmallGap}" />
+            </ScrollViewer>
+            <!-- Right: today's digest, or a person's profile -->
+            <Border Grid.Column="1" Background="{StaticResource PanelBackground}" CornerRadius="{StaticResource Corner}" Padding="{StaticResource PanelPadding}">
+                <ScrollViewer>
+                    <StackPanel x:Name="SidePanel" Spacing="{StaticResource Gap}" />
+                </ScrollViewer>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>

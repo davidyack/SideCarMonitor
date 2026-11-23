@@ -310,8 +310,8 @@
                 </Grid>
             </Button>
 
-            <!-- Cameras (wide, live) -->
-            <Button Grid.Column="2" Grid.ColumnSpan="2" Style="{StaticResource MetroTile}"
+            <!-- Cameras (live) -->
+            <Button Grid.Column="2" Style="{StaticResource MetroTile}"
                     Background="{StaticResource TileCobalt}" Padding="{StaticResource TilePadding}"
                     Click="CamerasTile_Click" AutomationProperties.Name="Cameras">
                 <Grid>
@@ -324,6 +324,23 @@
                                    HorizontalAlignment="Right" Opacity="0.85" />
                     </StackPanel>
                     <TextBlock Text="Cameras" FontSize="{StaticResource FontBody}" VerticalAlignment="Bottom" />
+                </Grid>
+            </Button>
+
+            <!-- LinkedIn (signal from your feed, read daily) -->
+            <Button x:Name="LinkedInTile" Grid.Column="3" Style="{StaticResource MetroTile}"
+                    Background="{StaticResource TileSky}" Padding="{StaticResource TilePadding}"
+                    Click="LinkedInTile_Click" AutomationProperties.Name="LinkedIn">
+                <Grid>
+                    <FontIcon Glyph="&#xE716;" FontSize="{StaticResource FontTileIcon}"
+                              HorizontalAlignment="Left" VerticalAlignment="Top" />
+                    <TextBlock x:Name="LinkedInTileValue" Text="--" FontSize="{StaticResource FontTileValue}"
+                               HorizontalAlignment="Right" VerticalAlignment="Top" />
+                    <StackPanel VerticalAlignment="Bottom">
+                        <TextBlock x:Name="LinkedInTileDetail" Text="Not read yet" FontSize="{StaticResource FontCaption}"
+                                   Opacity="0.85" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="LinkedIn" FontSize="{StaticResource FontBody}" />
+                    </StackPanel>
                 </Grid>
             </Button>
 
@@ -424,6 +441,7 @@
         <controls:TasksPage x:Name="TasksPageView" Visibility="Collapsed" />
         <controls:HomeControlPage x:Name="HouseView" Visibility="Collapsed" />
         <controls:ActivityPage x:Name="ActivityView" Visibility="Collapsed" />
+        <controls:LinkedInPage x:Name="LinkedInView" Visibility="Collapsed" />
 
         <!-- ===================== Pair phone (QR code) ===================== -->
         <Grid x:Name="PairingPage" Visibility="Collapsed" Background="{StaticResource KioskBackground}"

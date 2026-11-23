@@ -23,6 +23,7 @@
             <SolidColorBrush x:Key="TileEmerald" Color="#008A00" />
             <SolidColorBrush x:Key="TileAmber" Color="#D88C00" />
             <SolidColorBrush x:Key="TileTeal" Color="#00ABA9" />
+            <SolidColorBrush x:Key="TileSky" Color="#0A66C2" />
             <SolidColorBrush x:Key="TileMauve" Color="#76608A" />
             <SolidColorBrush x:Key="TileSteel" Color="#647687" />
 

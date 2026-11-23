@@ -31,6 +31,7 @@ public sealed partial class MainWindow : Window
 
     private void HouseTile_Click(object sender, RoutedEventArgs e)
     {
+        LinkedInView.Visibility = Visibility.Collapsed;
         ActivityView.Visibility = Visibility.Collapsed;
         WeatherPage.Visibility = Visibility.Collapsed;
         HomePage.Visibility = Visibility.Collapsed;
@@ -406,6 +407,7 @@ public sealed partial class MainWindow : Window
 
     private void ShowActivity()
     {
+        LinkedInView.Visibility = Visibility.Collapsed;
         HouseView.Visibility = Visibility.Collapsed;
         TasksPageView.Visibility = Visibility.Collapsed;
         WeatherPage.Visibility = Visibility.Collapsed;
@@ -415,6 +417,46 @@ public sealed partial class MainWindow : Window
     }
 
     private void ActivityTile_Click(object sender, RoutedEventArgs e) => ShowActivity();
+
+    // ---- LinkedIn tile ----
+    private LinkedInFeed? _linkedIn;
+
+    private void LinkedInTile_Click(object sender, RoutedEventArgs e)
+    {
+        HideOverlayPages();
+        HomePage.Visibility = Visibility.Collapsed;
+        LinkedInView.Visibility = Visibility.Visible;
+        LinkedInView.Show();
+    }
+
+    private void UpdateLinkedInTile()
+    {
+        if (_linkedIn is null) return;
+        var s = _linkedIn.State;
+        var today = _linkedIn.Signal.Where(p => p.FirstSeen.Date == DateTime.Today).ToList();
+        LinkedInTileValue.Text = s.LastRun is null ? "--" : today.Count.ToString();
+        LinkedInTileDetail.Text = s.NeedsAttention ? "Needs sign-in" : s.LastRun is null ? "Not read yet"
+            : today.Count > 0 ? string.Join(", ", today.Select(p => p.Author).Distinct().Take(3)) : "Nothing worth it today";
+    }
+
+    /// <summary>Daily read (about 7 AM), checked once a minute from the clock.</summary>
+    private DateTime _lastLinkedInCheck;
+    private void CheckLinkedInSchedule()
+    {
+        if (_linkedIn is null || DateTime.Now - _lastLinkedInCheck < TimeSpan.FromMinutes(1)) return;
+        _lastLinkedInCheck = DateTime.Now;
+        if (!_linkedIn.IsRunning && _linkedIn.IsDue(DateTime.Now)) _ = Task.Run(() => _linkedIn.RunAsync(manual: false));
+    }
+
+    /// <summary>Hides the full-screen pages that sit over Home and Cameras.</summary>
+    private void HideOverlayPages()
+    {
+        ActivityView.Visibility = Visibility.Collapsed;
+        HouseView.Visibility = Visibility.Collapsed;
+        TasksPageView.Visibility = Visibility.Collapsed;
+        WeatherPage.Visibility = Visibility.Collapsed;
+        LinkedInView.Visibility = Visibility.Collapsed;
+    }
     private string _activityFilter = "all";
     private HomeEventStream? _houseEvents;
 
@@ -521,6 +563,7 @@ public sealed partial class MainWindow : Window
         if (_tiles.Count > 0)
             StatusText.Text = $"{live} of {_tiles.Count} cameras live";
         UpdateLiveTiles(live);
+        CheckLinkedInSchedule();
         if (HomePage.Visibility == Visibility.Visible) RefreshHouseTile();
         UpdateWeatherStatus();
     }
@@ -567,6 +610,7 @@ public sealed partial class MainWindow : Window
 
     private void ShowTasks()
     {
+        LinkedInView.Visibility = Visibility.Collapsed;
         ActivityView.Visibility = Visibility.Collapsed;
         HouseView.Visibility = Visibility.Collapsed;
         WeatherPage.Visibility = Visibility.Collapsed;
@@ -577,6 +621,7 @@ public sealed partial class MainWindow : Window
 
     private void ShowHome()
     {
+        LinkedInView.Visibility = Visibility.Collapsed;
         ActivityView.Visibility = Visibility.Collapsed;
         HouseView.Visibility = Visibility.Collapsed;
         TasksPageView.Visibility = Visibility.Collapsed;
@@ -586,6 +631,7 @@ public sealed partial class MainWindow : Window
 
     private void ShowCameras()
     {
+        LinkedInView.Visibility = Visibility.Collapsed;
         ActivityView.Visibility = Visibility.Collapsed;
         HouseView.Visibility = Visibility.Collapsed;
         TasksPageView.Visibility = Visibility.Collapsed;
@@ -596,6 +642,7 @@ public sealed partial class MainWindow : Window
 
     private void ShowWeather()
     {
+        LinkedInView.Visibility = Visibility.Collapsed;
         ActivityView.Visibility = Visibility.Collapsed;
         HouseView.Visibility = Visibility.Collapsed;
         TasksPageView.Visibility = Visibility.Collapsed;
@@ -622,6 +669,11 @@ public sealed partial class MainWindow : Window
         _agent = new AgentHost(a, credential, DispatcherQueue);
         _voice = new VoiceService(a, credential);
         _judge = EventJudge.Create(a, credential);
+        _linkedIn = new LinkedInFeed(_judge, _agent);
+        LinkedInView.Initialize(_linkedIn);
+        LinkedInView.HomeRequested += ShowHome;
+        _linkedIn.Changed += () => DispatcherQueue.TryEnqueue(UpdateLinkedInTile);
+        UpdateLinkedInTile();
         _home = HomeAssistantBridge.Create(a.HomeAssistantUrl, _judge);
         HouseView.Initialize(_home);
         HouseView.HomeRequested += ShowHome;

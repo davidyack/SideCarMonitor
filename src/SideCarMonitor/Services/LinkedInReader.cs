@@ -97,6 +97,28 @@ public static class LinkedInReader
         return posts.Values.Take(maxPosts).ToList();
     }
 
+    /// <summary>Reads a person's (or company's) recent posts from their activity page. Only when you tap Refresh.</summary>
+    public static async Task<List<FeedPost>> ReadActivityAsync(string profileUrl, int maxPosts = 15, CancellationToken ct = default)
+    {
+        var url = profileUrl.TrimEnd('/') + (profileUrl.Contains("/company/") ? "/posts/" : "/recent-activity/all/");
+        using var pw = await Playwright.CreateAsync();
+        await using var context = await OpenAsync(pw, minimized: true);
+        var page = context.Pages.FirstOrDefault() ?? await context.NewPageAsync();
+        await page.GotoAsync(url, new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 60_000 });
+        CheckForChallenge(page.Url);
+        var random = new Random();
+        await Task.Delay(random.Next(3000, 5000), ct);
+        var posts = new Dictionary<string, FeedPost>();
+        for (var scroll = 0; scroll < 4 && posts.Count < maxPosts; scroll++)
+        {
+            foreach (var p in await page.EvaluateAsync<FeedPost[]>(ExtractScript) ?? [])
+                if (p.Urn.Length > 0 && !posts.ContainsKey(p.Urn)) posts[p.Urn] = p;
+            await page.EvaluateAsync("() => window.scrollBy(0, 1200)");
+            await Task.Delay(random.Next(1800, 3500), ct);
+        }
+        return posts.Values.Take(maxPosts).ToList();
+    }
+
     private static void CheckForChallenge(string url)
     {
         if (url.Contains("/login") || url.Contains("/checkpoint") || url.Contains("/authwall") || url.Contains("/uas/"))
@@ -120,7 +142,7 @@ public static class LinkedInReader
             const lines = raw.split('\n').map(l => l.trim()).filter(l => l && l !== 'Feed post');
             const ai = lines.findIndex(l => l.startsWith(author));
             // The line(s) after the name: skip the connection degree ("• 2nd"), the age and follower counts.
-            const after = ai >= 0 ? lines.slice(ai + 1, ai + 4).filter(l => !l.startsWith('•') && !/^\d+(m|h|d|w|mo|yr)\b/.test(l) && !/followers$/.test(l)) : [];
+            const after = ai >= 0 ? lines.slice(ai + 1, ai + 4).filter(l => !l.startsWith('•') && !/^\d+(m|h|d|w|mo|yr)\b/.test(l) && !/followers$/.test(l) && !/^(Follow|Following|Connect|Promoted|View my services|Visit my website)$/.test(l)) : [];
             const headline = after[0] || '';
             const age = (lines.find(l => /^\d+(m|h|d|w|mo|yr)\b/.test(l)) || '').replace(/\s*•.*$/, '');
             let text = txt(v(n, 'feed-commentary'));

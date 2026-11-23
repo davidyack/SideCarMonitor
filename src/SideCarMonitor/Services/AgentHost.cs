@@ -208,6 +208,31 @@ public sealed class AgentHost : IAsyncDisposable
     /// <summary>Sends a chat message; replies arrive through the Delta/Message/Idle events with the returned id.</summary>
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _turnText = new();
 
+    /// <summary>
+    /// Asks the agent something in the background (not from the user) and returns its final reply.
+    /// The turn id starts with <paramref name="idPrefix"/> (e.g. "li-"), so tools treat it as a background turn:
+    /// it can't control the home or change tasks.
+    /// </summary>
+    public async Task<string> AskAsync(string prompt, string idPrefix, TimeSpan timeout)
+    {
+        var id = idPrefix + Guid.NewGuid().ToString("N")[..8];
+        var last = "";
+        var done = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        void OnMessage(string i, string t) { if (i == id && !string.IsNullOrWhiteSpace(t)) last = t; }
+        void OnIdle(string i) { if (i == id) done.TrySetResult(last); }
+        void OnError(string? i, string m) { if (i == id) done.TrySetException(new InvalidOperationException(m)); }
+        Message += OnMessage; Idle += OnIdle; Error += OnError;
+        try
+        {
+            await SendChatAsync(prompt, CancellationToken.None, id, fromUser: false);
+            return (await done.Task.WaitAsync(timeout)).Trim();
+        }
+        finally
+        {
+            Message -= OnMessage; Idle -= OnIdle; Error -= OnError;
+        }
+    }
+
     /// <summary>What the user said to start this turn, or null for background turns the kiosk started itself.</summary>
     public string? TurnText(string turn) => _turnText.TryGetValue(turn, out var t) ? t : null;
 
