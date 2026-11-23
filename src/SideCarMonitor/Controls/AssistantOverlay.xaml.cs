@@ -66,6 +66,9 @@ public sealed partial class AssistantOverlay : UserControl
         SetState(State.Idle);
     }
 
+    /// <summary>Optional context for the agent, e.g. which task you're looking at (so "it" resolves).</summary>
+    public Func<string?>? ContextProvider { get; set; }
+
     /// <summary>Wires up the agent and speech services. Call once from the window.</summary>
     public void Initialize(AgentHost? agent, VoiceService? voice, string? notConfiguredReason)
     {
@@ -204,7 +207,8 @@ public sealed partial class AssistantOverlay : UserControl
             SetState(State.Thinking);
             _replyLine = null;
             _replyDone = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-            _replyId = await _agent.SendChatAsync(text, cts.Token);
+            var context = ContextProvider?.Invoke();
+            _replyId = await _agent.SendChatAsync(context is null ? text : $"{context}\n{text}", cts.Token);
             var reply = await _replyDone.Task.WaitAsync(cts.Token);
 
             SetState(State.Speaking);

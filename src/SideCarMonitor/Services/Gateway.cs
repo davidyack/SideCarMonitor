@@ -50,8 +50,21 @@ public sealed class Gateway : IAsyncDisposable
         _deps = deps;
     }
 
-    /// <summary>The pairing payload shown as a QR code: where to connect, the key, and the certificate to trust.</summary>
-    public string PairingPayload => JsonSerializer.Serialize(new { v = 1, url = Url, key = Key, cert = CertSha256 });
+    /// <summary>Tailscale address of this PC (100.64.0.0/10), if Tailscale is connected.</summary>
+    public string? TailnetUrl { get; private set; }
+
+    /// <summary>
+    /// The pairing payload shown as a QR code: where to connect (home Wi-Fi first, then Tailscale for when
+    /// you're away), the key, and the certificate to trust.
+    /// </summary>
+    public string PairingPayload => JsonSerializer.Serialize(new
+    {
+        v = 2,
+        url = Url,
+        urls = new[] { Url, TailnetUrl }.OfType<string>().ToArray(),
+        key = Key,
+        cert = CertSha256,
+    });
 
     public async Task StartAsync()
     {
@@ -59,6 +72,7 @@ public sealed class Gateway : IAsyncDisposable
         var cert = LoadOrCreateCertificate();
         CertSha256 = Convert.ToHexString(SHA256.HashData(cert.RawData));
         Url = $"https://{LocalIPv4() ?? "localhost"}:{_port}";
+        TailnetUrl = TailscaleIPv4() is { } ts ? $"https://{ts}:{_port}" : null;
 
         var builder = WebApplication.CreateSlimBuilder();
         builder.Logging.ClearProviders();
@@ -273,6 +287,16 @@ public sealed class Gateway : IAsyncDisposable
             .SelectMany(p => p.UnicastAddresses)
             .Select(a => a.Address)
             .FirstOrDefault(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && !IPAddress.IsLoopback(a))
+            ?.ToString();
+
+    /// <summary>This PC's Tailscale IPv4 (CGNAT range 100.64.0.0/10), or null if Tailscale isn't up.</summary>
+    private static string? TailscaleIPv4() =>
+        System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
+            .Where(n => n.OperationalStatus == System.Net.NetworkInformation.OperationalStatus.Up)
+            .SelectMany(n => n.GetIPProperties().UnicastAddresses)
+            .Select(a => a.Address)
+            .FirstOrDefault(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork
+                                 && a.GetAddressBytes() is [100, var b, _, _] && b >= 64 && b <= 127)
             ?.ToString();
 
     private Task<T> OnUiAsync<T>(Func<T> fn)

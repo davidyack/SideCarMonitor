@@ -1,0 +1,329 @@
+package app.sidecarmonitor.ui
+
+import android.graphics.BitmapFactory
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Thermostat
+import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import app.sidecarmonitor.AssistantState
+import app.sidecarmonitor.UiState
+import kotlinx.coroutines.delay
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
+
+enum class Screen { Home, Cameras, Weather, Activity, Settings }
+
+private fun JsonObject?.str(key: String): String? =
+    this?.get(key)?.let { runCatching { it.jsonPrimitive.content }.getOrNull() }?.takeIf { it != "null" }
+
+// ---- Home: Windows Phone style tiles --------------------------------------------------------
+
+@Composable
+fun HomeScreen(state: UiState, onOpen: (Screen) -> Unit, onTalk: () -> Unit) {
+    val now by produceState(LocalTime.now()) { while (true) { value = LocalTime.now(); delay(1000) } }
+    val weather = state.status?.weather
+    val cams = state.status?.cameras.orEmpty()
+    val activity = state.status?.activity.orEmpty()
+    val activeNow = activity.firstOrNull { it.active }
+
+    Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Tile(SideCarColors.Panel, Modifier.weight(1f).aspectRatio(1f), onClick = null) {
+                Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
+                    Text(now.format(DateTimeFormatter.ofPattern("h:mm")), fontSize = 44.sp, fontWeight = FontWeight.Light)
+                    Text(
+                        if (state.connected) "Kiosk ${state.connectionLabel}" else (state.lastError ?: "Connecting…"),
+                        color = if (state.connected) SideCarColors.Ok else SideCarColors.Muted, fontSize = 13.sp,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            Tile(SideCarColors.Amber, Modifier.weight(1f).aspectRatio(1f), onClick = { onOpen(Screen.Weather) },
+                icon = Icons.Filled.Thermostat, value = weather.str("temperature") ?: "--",
+                detail = weather.str("condition") ?: "", label = "Weather")
+        }
+        Tile(SideCarColors.Cobalt, Modifier.fillMaxWidth().height(150.dp), onClick = { onOpen(Screen.Cameras) },
+            icon = Icons.Filled.Videocam,
+            value = if (cams.isEmpty()) "--" else "${cams.count { it.live }}/${cams.size}",
+            detail = "live", label = "Cameras")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Tile(if (activeNow != null) SideCarColors.Alert else SideCarColors.Crimson, Modifier.weight(1f).aspectRatio(1f),
+                onClick = { onOpen(Screen.Activity) }, icon = Icons.Filled.Notifications,
+                value = activity.size.toString(),
+                detail = activeNow?.let { "${it.kind} at ${it.camera}" } ?: activity.firstOrNull()?.let { "Last: ${it.kind}" } ?: "Nothing yet",
+                label = "Activity")
+            Tile(SideCarColors.Mauve, Modifier.weight(1f).aspectRatio(1f), onClick = onTalk,
+                icon = Icons.Filled.Mic, value = "", detail = "Ask anything", label = "SideCar")
+        }
+        Tile(SideCarColors.Steel, Modifier.fillMaxWidth().height(72.dp), onClick = { onOpen(Screen.Settings) },
+            icon = Icons.Filled.Settings, value = "", detail = "", label = "Settings")
+    }
+}
+
+@Composable
+fun Tile(
+    color: Color,
+    modifier: Modifier,
+    onClick: (() -> Unit)?,
+    icon: ImageVector? = null,
+    value: String = "",
+    detail: String = "",
+    label: String = "",
+    content: (@Composable () -> Unit)? = null,
+) {
+    Box(
+        modifier
+            .background(color)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(14.dp),
+    ) {
+        if (content != null) { content(); return@Box }
+        if (icon != null) Icon(icon, null, Modifier.size(40.dp).align(Alignment.TopStart), tint = Color.White)
+        if (value.isNotEmpty()) Text(value, Modifier.align(Alignment.TopEnd), fontSize = 28.sp, color = Color.White)
+        Column(Modifier.align(Alignment.BottomStart)) {
+            if (detail.isNotEmpty()) Text(detail, fontSize = 13.sp, color = Color.White.copy(alpha = 0.85f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(label, fontSize = 18.sp, color = Color.White)
+        }
+    }
+}
+
+// ---- Detail screens ---------------------------------------------------------------------------
+
+@Composable
+fun PageHeader(title: String, onBack: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = onBack, modifier = Modifier.size(56.dp)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
+        Text(title, fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+fun CamerasScreen(state: UiState, snapshot: suspend (Int) -> ByteArray?, onBack: () -> Unit) {
+    Column(Modifier.fillMaxSize()) {
+        PageHeader("Cameras", onBack)
+        LazyColumn(Modifier.padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(state.status?.cameras.orEmpty()) { cam ->
+                // Refresh each camera's still every 5 seconds while this screen is open.
+                val image by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, cam.index) {
+                    while (true) {
+                        snapshot(cam.index)?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }?.let { value = it.asImageBitmap() }
+                        delay(5000)
+                    }
+                }
+                Column {
+                    Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(8.dp)).background(Color.Black)) {
+                        image?.let { Image(it, cam.name, Modifier.fillMaxSize(), contentScale = ContentScale.Fit) }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(10.dp).clip(CircleShape).background(if (cam.live) SideCarColors.Ok else SideCarColors.Muted))
+                        Spacer(Modifier.width(8.dp))
+                        Text(cam.name, fontSize = 18.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun WeatherScreen(state: UiState, onBack: () -> Unit) {
+    val w = state.status?.weather
+    Column(Modifier.fillMaxSize()) {
+        PageHeader("Weather", onBack)
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Tile(SideCarColors.Amber, Modifier.fillMaxWidth().height(170.dp), onClick = null) {
+                Column {
+                    Text(w.str("temperature") ?: "--", fontSize = 64.sp, fontWeight = FontWeight.Light)
+                    Text(w.str("condition") ?: "", fontSize = 20.sp)
+                    Text("Feels like ${w.str("feelsLike") ?: "--"}", fontSize = 15.sp)
+                }
+            }
+            WeatherRow("Wind", w.str("wind"), "Gust ${w.str("windGust") ?: "--"}")
+            WeatherRow("Humidity", w.str("humidity"), "Dew point ${w.str("dewPoint") ?: "--"}")
+            WeatherRow("Rain today", w.str("rainToday"), w.str("precipitationNow")?.let { "Now: $it" })
+            WeatherRow("Pressure", w.str("pressure"), null)
+            WeatherRow("Lightning today", w.str("lightningStrikesToday"), w.str("lastLightning"))
+            Text("Tempest reading at ${w.str("observedAt") ?: "--"}", color = SideCarColors.Muted, fontSize = 13.sp)
+        }
+    }
+}
+
+@Composable
+private fun WeatherRow(title: String, value: String?, detail: String?) {
+    Column(Modifier.fillMaxWidth().background(SideCarColors.Panel).padding(12.dp)) {
+        Text(title, color = SideCarColors.Muted, fontSize = 14.sp)
+        Text(value ?: "--", fontSize = 22.sp)
+        if (!detail.isNullOrBlank()) Text(detail, color = SideCarColors.Muted, fontSize = 13.sp)
+    }
+}
+
+@Composable
+fun ActivityScreen(state: UiState, onBack: () -> Unit) {
+    Column(Modifier.fillMaxSize()) {
+        PageHeader("Activity", onBack)
+        val items = state.status?.activity.orEmpty()
+        if (items.isEmpty()) Text("No activity yet", Modifier.padding(16.dp), color = SideCarColors.Muted)
+        LazyColumn(Modifier.padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(items) { a ->
+                Column(Modifier.fillMaxWidth().background(if (a.active) SideCarColors.Crimson else SideCarColors.Panel).padding(12.dp)) {
+                    Text("${a.kind} · ${a.camera}", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                    Text("${a.start.substringAfter('T').take(5)} · ${a.duration}", color = Color.White.copy(alpha = 0.75f), fontSize = 14.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SettingsScreen(state: UiState, onScan: () -> Unit, onUnpair: () -> Unit, onBack: () -> Unit) {
+    Column(Modifier.fillMaxSize()) {
+        PageHeader("Settings", onBack)
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(if (state.connected) "Connected to the kiosk ${state.connectionLabel}" else "Not connected", fontSize = 16.sp)
+            BigButton("Pair again (scan QR)", Icons.Filled.QrCodeScanner, SideCarColors.Cobalt, onScan)
+            BigButton("Unpair this phone", Icons.Filled.Close, SideCarColors.Steel, onUnpair)
+        }
+    }
+}
+
+@Composable
+fun PairScreen(error: String?, onScan: () -> Unit) {
+    Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center) {
+        Text("SideCar", fontSize = 40.sp, fontWeight = FontWeight.Light)
+        Spacer(Modifier.height(12.dp))
+        Text("On the kiosk, open Settings → Pair phone, then scan the QR code.", fontSize = 18.sp, color = SideCarColors.Muted)
+        Spacer(Modifier.height(24.dp))
+        BigButton("Scan pairing code", Icons.Filled.QrCodeScanner, SideCarColors.Cobalt, onScan)
+        if (error != null) { Spacer(Modifier.height(12.dp)); Text(error, color = SideCarColors.Alert) }
+    }
+}
+
+@Composable
+fun BigButton(text: String, icon: ImageVector, color: Color, onClick: () -> Unit) {
+    Button(onClick = onClick, Modifier.fillMaxWidth().height(64.dp), shape = RoundedCornerShape(6.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = color, contentColor = Color.White)) {
+        Icon(icon, null, Modifier.size(26.dp)); Spacer(Modifier.width(12.dp)); Text(text, fontSize = 18.sp)
+    }
+}
+
+// ---- Floating mic + assistant panel -----------------------------------------------------------
+
+@Composable
+fun MicFab(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    FloatingActionButton(onClick = onClick, modifier = modifier.size(72.dp), shape = CircleShape,
+        containerColor = SideCarColors.Cobalt, contentColor = Color.White) {
+        Icon(Icons.Filled.Mic, "Talk to SideCar", Modifier.size(34.dp))
+    }
+}
+
+@Composable
+fun AssistantPanel(
+    state: UiState,
+    onTalk: () -> Unit,
+    onSend: (String) -> Unit,
+    onStop: () -> Unit,
+    onClose: () -> Unit,
+) {
+    var input by remember { mutableStateOf("") }
+    val listState = rememberLazyListState()
+    LaunchedEffect(state.lines.size, state.lines.lastOrNull()?.text) {
+        if (state.lines.isNotEmpty()) listState.animateScrollToItem(state.lines.size - 1)
+    }
+    Column(Modifier.fillMaxSize().background(SideCarColors.Background).safeDrawingPadding().imePadding().padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Filled.Mic, null, Modifier.size(28.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(state.assistantNote, Modifier.weight(1f), fontSize = 20.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
+            IconButton(onClick = onClose, Modifier.size(56.dp)) { Icon(Icons.Filled.Close, "Close", Modifier.size(30.dp)) }
+        }
+        AnimatedVisibility(state.assistant == AssistantState.Listening) {
+            LinearProgressIndicator(progress = { state.micLevel }, Modifier.fillMaxWidth().height(6.dp))
+        }
+        LazyColumn(Modifier.weight(1f), state = listState, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(state.lines) { line ->
+                Box(Modifier.fillMaxWidth(), contentAlignment = if (line.fromUser) Alignment.CenterEnd else Alignment.CenterStart) {
+                    Text(line.text, Modifier.clip(RoundedCornerShape(10.dp))
+                        .background(if (line.fromUser) SideCarColors.Cobalt else SideCarColors.PanelBorder).padding(12.dp), fontSize = 17.sp)
+                }
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(value = input, onValueChange = { input = it }, Modifier.weight(1f),
+                placeholder = { Text("Or type here") }, singleLine = true)
+            IconButton(onClick = { onSend(input); input = "" }, Modifier.size(56.dp)) {
+                Icon(Icons.AutoMirrored.Filled.Send, "Send", Modifier.size(28.dp))
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onTalk, Modifier.weight(2f).height(64.dp), shape = RoundedCornerShape(6.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = SideCarColors.Cobalt, contentColor = Color.White)) {
+                Icon(Icons.Filled.Mic, null, Modifier.size(28.dp)); Spacer(Modifier.width(8.dp))
+                Text(if (state.assistant == AssistantState.Listening) "Done" else "Talk", fontSize = 20.sp)
+            }
+            Button(onClick = onStop, Modifier.weight(1f).height(64.dp), shape = RoundedCornerShape(6.dp),
+                enabled = state.assistant != AssistantState.Idle,
+                colors = ButtonDefaults.buttonColors(containerColor = SideCarColors.Panel, contentColor = Color.White)) {
+                Icon(Icons.Filled.Stop, null, Modifier.size(28.dp)); Spacer(Modifier.width(6.dp)); Text("Stop", fontSize = 18.sp)
+            }
+        }
+    }
+}

@@ -37,11 +37,17 @@ public sealed class AgentHost : IAsyncDisposable
     public event Action<string?, string>? Error;      // id (may be null), message
     public event Action<string, string>? ToolStarted; // chat id, tool name
 
+    /// <summary>A tool call from the agent: name, JSON arguments, and the chat turn it belongs to.</summary>
+    public sealed record ToolCall(string Name, JsonNode? Args, string Turn);
+
     /// <summary>
-    /// Answers tool calls whose data lives in the kiosk (e.g. local weather). Called on the UI thread with the
-    /// tool name; return any JSON-serializable object.
+    /// Answers tool calls whose data lives in the kiosk (local weather, the to-do list). Called on the UI thread;
+    /// return any JSON-serializable object. The turn id tells the kiosk who's asking (you, or a background review).
     /// </summary>
-    public Func<string, object?>? ToolHandler { get; set; }
+    public Func<ToolCall, Task<object?>>? ToolHandler { get; set; }
+
+    /// <summary>Raised on the UI thread when a turn finishes (any turn, including background reviews).</summary>
+    public event Action<string>? TurnFinished;
 
     public bool IsRunning => _process is { Exited.IsCompleted: false };
 
@@ -245,14 +251,14 @@ public sealed class AgentHost : IAsyncDisposable
                 case "ready": _ready?.TrySetResult(); break;
                 case "delta": Post(() => Delta?.Invoke(id, text)); break;
                 case "message": Post(() => Message?.Invoke(id, text)); break;
-                case "idle": Post(() => Idle?.Invoke(id)); break;
+                case "idle": Post(() => { Idle?.Invoke(id); TurnFinished?.Invoke(id); }); break;
                 case "tool": Post(() => ToolStarted?.Invoke(id, (string?)msg?["name"] ?? "")); break;
                 case "tool_request":
-                    var name = (string?)msg?["name"] ?? "";
+                    var call = new ToolCall((string?)msg?["name"] ?? "", msg?["args"]?.DeepClone(), (string?)msg?["turn"] ?? "");
                     _ui.TryEnqueue(async () =>
                     {
                         object? result;
-                        try { result = ToolHandler?.Invoke(name) ?? new { error = $"Unknown tool '{name}'." }; }
+                        try { result = ToolHandler is null ? new { error = "No tools." } : await ToolHandler(call) ?? new { error = $"Unknown tool '{call.Name}'." }; }
                         catch (Exception ex) { result = new { error = ex.Message }; }
                         await WriteAsync(new { type = "tool_result", id, result }, CancellationToken.None);
                     });

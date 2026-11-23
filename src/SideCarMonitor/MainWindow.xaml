@@ -314,16 +314,19 @@
                 </Grid>
             </Button>
 
-            <!-- Calendar (placeholder) -->
-            <Button Grid.Row="1" Grid.Column="2" Style="{StaticResource MetroTile}"
+            <!-- To-do (live) -->
+            <Button x:Name="TasksTile" Grid.Row="1" Grid.Column="2" Style="{StaticResource MetroTile}"
                     Background="{StaticResource TileEmerald}" Padding="{StaticResource TilePadding}"
-                    Click="ComingSoonTile_Click" Tag="Calendar">
+                    Click="TasksTile_Click" AutomationProperties.Name="To-do">
                 <Grid>
-                    <FontIcon Glyph="&#xE787;" FontSize="{StaticResource FontTileIcon}"
+                    <FontIcon Glyph="&#xE9D5;" FontSize="{StaticResource FontTileIcon}"
                               HorizontalAlignment="Left" VerticalAlignment="Top" />
+                    <TextBlock x:Name="TasksTileValue" Text="0" FontSize="{StaticResource FontTileValue}"
+                               HorizontalAlignment="Right" VerticalAlignment="Top" />
                     <StackPanel VerticalAlignment="Bottom">
-                        <TextBlock Text="Not set up yet" FontSize="{StaticResource FontCaption}" Opacity="0.85" />
-                        <TextBlock Text="Calendar" FontSize="{StaticResource FontBody}" />
+                        <TextBlock x:Name="TasksTileDetail" Text="Nothing for today" FontSize="{StaticResource FontCaption}"
+                                   Opacity="0.85" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="To-do" FontSize="{StaticResource FontBody}" />
                     </StackPanel>
                 </Grid>
             </Button>
@@ -369,6 +372,9 @@
                 </Button.Flyout>
             </Button>
         </Grid>
+
+        <!-- ===================== To-do ===================== -->
+        <controls:TasksPage x:Name="TasksPageView" Visibility="Collapsed" />
 
         <!-- ===================== Pair phone (QR code) ===================== -->
         <Grid x:Name="PairingPage" Visibility="Collapsed" Background="{StaticResource KioskBackground}"

@@ -22,6 +22,8 @@ public sealed partial class MainWindow : Window
     private TempestListener? _tempest;
     private AgentHost? _agent;
     private Gateway? _gateway;
+    private SideCarTasks.TaskService? _taskService;
+    private TaskAssistant? _taskTools;
     private List<CameraConfig> _cameraConfigs = [];
     private VoiceService? _voice;
     private CameraTile? _focused;
@@ -32,6 +34,7 @@ public sealed partial class MainWindow : Window
         _wx = new WeatherFormat(settings.Weather.Imperial);
         InitializeComponent();
         StartTempest();
+        StartTasks();
         StartAssistant();
 
         PlaceOnKioskMonitor();
@@ -212,14 +215,61 @@ public sealed partial class MainWindow : Window
     // ---- Navigation -----------------------------------------------------------------
     // The Cameras page is always underneath; Weather and Home are opaque pages layered on top.
 
+    // ---- To-do --------------------------------------------------------------------------------
+
+    private void StartTasks()
+    {
+        try
+        {
+            var store = new SideCarTasks.TaskStore(App.TasksPath);
+            _taskService = new SideCarTasks.TaskService(store);
+            TasksPageView.Initialize(_taskService, null);
+            TasksPageView.HomeRequested += ShowHome;
+            store.Changed += _ => DispatcherQueue.TryEnqueue(UpdateTasksTile);
+            UpdateTasksTile();
+            // Durable daily rollover + brief, even when the kiosk isn't running.
+            var exe = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName;
+            if (exe is not null)
+                _ = Task.Run(() => System.Diagnostics.Debug.WriteLine("[tasks] scheduled task: " + TaskAssistant.RegisterScheduledTask(exe)));
+        }
+        catch (Exception ex)
+        {
+            TasksTileDetail.Text = "To-do unavailable";
+            System.Diagnostics.Debug.WriteLine($"[tasks] failed to start: {ex.Message}");
+        }
+    }
+
+    private void UpdateTasksTile()
+    {
+        if (_taskService is null) return;
+        var today = _taskService.View(SideCarTasks.TaskView.Today);
+        var needs = _taskService.View(SideCarTasks.TaskView.NeedsMe);
+        TasksTileValue.Text = today.Count.ToString();
+        TasksTileDetail.Text = needs.Count > 0 ? $"{needs.Count} need{(needs.Count == 1 ? "s" : "")} you"
+                             : today.FirstOrDefault() is { } first ? first.Title : "Nothing for today";
+        TasksTile.Background = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources[needs.Count > 0 ? "TileCrimson" : "TileEmerald"];
+    }
+
+    private void TasksTile_Click(object sender, RoutedEventArgs e) => ShowTasks();
+
+    private void ShowTasks()
+    {
+        WeatherPage.Visibility = Visibility.Collapsed;
+        HomePage.Visibility = Visibility.Collapsed;
+        TasksPageView.Visibility = Visibility.Visible;
+        TasksPageView.Show();
+    }
+
     private void ShowHome()
     {
+        TasksPageView.Visibility = Visibility.Collapsed;
         WeatherPage.Visibility = Visibility.Collapsed;
         HomePage.Visibility = Visibility.Visible;
     }
 
     private void ShowCameras()
     {
+        TasksPageView.Visibility = Visibility.Collapsed;
         WeatherPage.Visibility = Visibility.Collapsed;
         HomePage.Visibility = Visibility.Collapsed;
         LayoutTiles();
@@ -227,6 +277,7 @@ public sealed partial class MainWindow : Window
 
     private void ShowWeather()
     {
+        TasksPageView.Visibility = Visibility.Collapsed;
         WeatherPage.Visibility = Visibility.Visible;
         HomePage.Visibility = Visibility.Collapsed;
     }
@@ -249,12 +300,23 @@ public sealed partial class MainWindow : Window
             new Azure.Identity.InteractiveBrowserCredential());
         _agent = new AgentHost(a, credential, DispatcherQueue);
         _voice = new VoiceService(a, credential);
-        _agent.ToolHandler = name => name switch
+        _agent.ToolHandler = call => call.Name switch
         {
-            "get_local_weather" => LocalWeatherForAgent(),
-            _ => new { error = $"Unknown tool '{name}'." },
+            "get_local_weather" => Task.FromResult<object?>(LocalWeatherForAgent()),
+            _ when call.Name.StartsWith("task") => _taskTools?.HandleAsync(call) ?? Task.FromResult<object?>(new { error = "The to-do list isn't available." }),
+            _ => Task.FromResult<object?>(new { error = $"Unknown tool '{call.Name}'." }),
         };
         Assistant.Initialize(_agent, _voice, null);
+        // "it" in chat/voice means the task you're looking at.
+        Assistant.ContextProvider = () =>
+            TasksPageView.Visibility == Visibility.Visible && TasksPageView.SelectedTask is { } t
+                ? $"[Context: the user is looking at task {t.Id} \"{t.Title}\"]" : null;
+        if (_taskService is not null)
+        {
+            _taskTools = new TaskAssistant(_taskService, _agent, DispatcherQueue);
+            TasksPageView.Initialize(_taskService, _taskTools);
+            _ = _taskTools.RunDueJobsAsync();
+        }
         _ = StartGatewayAsync();
     }
 
@@ -459,7 +521,7 @@ public sealed partial class MainWindow : Window
         }
         else
         {
-            PairingUrl.Text = _gateway.Url;
+            PairingUrl.Text = _gateway.TailnetUrl is { } ts ? $"Home: {_gateway.Url}   Away (Tailscale): {ts}" : _gateway.Url;
             PairingQr.Source = await QrImageAsync(_gateway.PairingPayload);
         }
         PairingPage.Visibility = Visibility.Visible;
@@ -512,6 +574,7 @@ public sealed partial class MainWindow : Window
         _clock.Stop();
         _monitor?.Dispose();
         _tempest?.Dispose();
+        _taskTools?.Dispose();
         _voice?.Dispose();
         if (_gateway is not null) _ = _gateway.DisposeAsync().AsTask();
         if (_agent is not null) _ = _agent.DisposeAsync().AsTask();
