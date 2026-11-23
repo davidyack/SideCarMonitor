@@ -158,8 +158,8 @@ public sealed class Gateway : IAsyncDisposable
             return Results.Ok(new { ok = true });
         });
         app.MapGet("/api/linkedin/podcast/audio", () =>
-            File.Exists(LinkedInFeed.PodcastPath)
-                ? Results.File(File.ReadAllBytes(LinkedInFeed.PodcastPath), "audio/wav", enableRangeProcessing: true)
+            LinkedIn is { } li && File.Exists(li.PodcastPath)
+                ? Results.File(File.ReadAllBytes(li.PodcastPath), "audio/wav", enableRangeProcessing: true)
                 : Results.NotFound());
         // Interrupt from the phone: what you said (already transcribed) and where the episode was.
         app.MapPost("/api/linkedin/podcast/interrupt", async (JsonObject body) =>

@@ -155,7 +155,7 @@ public sealed partial class LinkedInPage : UserControl
         return b;
     }
 
-    private bool EpisodeReady => _feed?.State is { PodcastStatus: "ready", PodcastCleared: false } && File.Exists(LinkedInFeed.PodcastPath);
+    private bool EpisodeReady => _feed?.State is { PodcastStatus: "ready", PodcastCleared: false } && File.Exists(_feed!.PodcastPath);
     private bool Playing => _player?.PlaybackSession.PlaybackState == Windows.Media.Playback.MediaPlaybackState.Playing;
 
     private void RenderBriefingBar()
@@ -168,6 +168,11 @@ public sealed partial class LinkedInPage : UserControl
         {
             if (s.PodcastStatus == "preparing")
                 BriefingBar.Children.Add(BarButton("\uE916", "Preparing briefing\u2026", "PanelBorder", () => { }));
+            else if (s.PodcastStatus.StartsWith("failed"))
+            {
+                BriefingBar.Children.Add(BarButton("\uE7BA", "Retry briefing", "AlertBrush", () => _ = PlayBriefingAsync()));
+                SubtitleText.Text = $"Couldn't make the briefing: {s.PodcastStatus[7..].Trim()}";
+            }
             else
                 BriefingBar.Children.Add(BarButton("\uE768", "Play briefing", "TileCobalt", () => _ = PlayBriefingAsync()));
             return;
@@ -206,7 +211,7 @@ public sealed partial class LinkedInPage : UserControl
             _player?.Dispose();
             _player = new Windows.Media.Playback.MediaPlayer
             {
-                Source = Windows.Media.Core.MediaSource.CreateFromUri(new Uri(LinkedInFeed.PodcastPath + "?" + _feed.State.PodcastAt?.Ticks)),
+                Source = Windows.Media.Core.MediaSource.CreateFromUri(new Uri(_feed.PodcastPath)),
             };
             _player.MediaEnded += (_, _) => DispatcherQueue.TryEnqueue(RenderBriefingBar);
             _playerEpisode = _feed.State.PodcastAt;
@@ -230,6 +235,8 @@ public sealed partial class LinkedInPage : UserControl
     private void StopBriefing()
     {
         _player?.Pause();
+        _player?.Dispose(); // let go of the file
+        _player = null;
         _clock?.Stop();
     }
 

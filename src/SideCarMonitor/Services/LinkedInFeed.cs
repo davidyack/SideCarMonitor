@@ -67,6 +67,7 @@ public sealed class LiState
     public double PodcastSeconds { get; set; }
     public string PodcastScript { get; set; } = "";
     public bool PodcastCleared { get; set; }
+    public string PodcastFile { get; set; } = "";
     /// <summary>Where each part of the episode starts and which posts it covers (for Interrupt).</summary>
     public List<PodcastSegment> PodcastSegments { get; set; } = [];
 }
@@ -275,8 +276,10 @@ public sealed class LinkedInFeed
 
     // ---- Podcast: a short audio rundown of your signal posts --------------------------------------
 
-    public static string PodcastPath { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SideCarMonitor", "linkedin-podcast.wav");
+    private static readonly string AudioFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SideCarMonitor");
+
+    /// <summary>The current episode's audio. Each episode gets its own file, because a player may still hold the last one open.</summary>
+    public string PodcastPath => Path.Combine(AudioFolder, State.PodcastFile.Length > 0 ? State.PodcastFile : "linkedin-podcast.wav");
 
     /// <summary>Set by the kiosk: turns the script into speech in the assistant's MAI voice.</summary>
     public VoiceService? Voice { get; set; }
@@ -318,9 +321,12 @@ public sealed class LinkedInFeed
                 PostIds = sg.Refs.Select(r => int.TryParse(r[1..], out var n) && n >= 1 && n <= posts.Count ? posts[n - 1].Id : null)
                     .Where(id => id is not null).Select(id => id!).ToList(),
             }).ToList();
-            var tmp = PodcastPath + ".tmp";
-            await File.WriteAllBytesAsync(tmp, wav);
-            File.Move(tmp, PodcastPath, overwrite: true);
+            var file = $"linkedin-briefing-{DateTime.Now:yyyyMMdd-HHmmss}.wav";
+            await File.WriteAllBytesAsync(Path.Combine(AudioFolder, file), wav);
+            var previous = State.PodcastFile;
+            State.PodcastFile = file;
+            foreach (var old in Directory.EnumerateFiles(AudioFolder, "linkedin-*.wav").Where(f => Path.GetFileName(f) != file))
+                try { File.Delete(old); } catch { /* still open in a player; cleaned up next time */ }
             State.PodcastAt = DateTime.Now;
             State.PodcastPostIds = posts.Select(p => p.Id).ToList();
             State.PodcastSeconds = Math.Max(0, wav.Length - 44) / 48000.0; // 24 kHz, 16-bit mono

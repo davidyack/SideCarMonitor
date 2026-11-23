@@ -285,7 +285,7 @@ public sealed partial class XPage : UserControl
         return b;
     }
 
-    private bool EpisodeReady => _feed?.State is { PodcastStatus: "ready", PodcastCleared: false } && File.Exists(XFeed.PodcastPath);
+    private bool EpisodeReady => _feed?.State is { PodcastStatus: "ready", PodcastCleared: false } && File.Exists(_feed!.PodcastPath);
     private bool Playing => _player?.PlaybackSession.PlaybackState == Windows.Media.Playback.MediaPlaybackState.Playing;
 
     private void RenderBriefingBar()
@@ -295,14 +295,16 @@ public sealed partial class XPage : UserControl
         var s = _feed.State;
         if (!(_player is not null && _playerEpisode == s.PodcastAt && EpisodeReady))
         {
-            BriefingBar.Children.Add(s.PodcastStatus == "preparing" ? BarButton("", "Preparing…", "PanelBorder", () => { })
-                                                                    : BarButton("", "Play briefing", "TileCobalt", () => _ = PlayAsync()));
+            BriefingBar.Children.Add(s.PodcastStatus == "preparing" ? BarButton("\uE916", "Preparing\u2026", "PanelBorder", () => { })
+                : s.PodcastStatus.StartsWith("failed") ? BarButton("\uE7BA", "Retry briefing", "AlertBrush", () => _ = PlayAsync())
+                : BarButton("\uE768", "Play briefing", "TileCobalt", () => _ = PlayAsync()));
+            if (s.PodcastStatus.StartsWith("failed")) SubtitleText.Text = $"Couldn't make the briefing: {s.PodcastStatus[7..].Trim()}";
             return;
         }
         BriefingBar.Children.Add(Playing ? BarButton("", "Pause", "TileCobalt", () => { _player!.Pause(); RenderBriefingBar(); })
                                          : BarButton("", "Play", "TileCobalt", () => { _player!.Play(); RenderBriefingBar(); }));
         BriefingBar.Children.Add(BarButton("", _listening ? "Listening…" : "Interrupt", "TileAmber", () => _ = InterruptAsync()));
-        BriefingBar.Children.Add(BarButton("", "Done", "TileEmerald", () => { _player?.Pause(); _clock?.Stop(); _note = $"Cleared {_feed.ClearPodcastPosts()} posts from the feed"; Render(false); }));
+        BriefingBar.Children.Add(BarButton("", "Done", "TileEmerald", () => { _player?.Pause(); _player?.Dispose(); _player = null; _clock?.Stop(); _note = $"Cleared {_feed.ClearPodcastPosts()} posts from the feed"; Render(false); }));
         var pos = _player!.PlaybackSession.Position; var len = _player.PlaybackSession.NaturalDuration;
         BriefingBar.Children.Add(new TextBlock { Text = $"{(int)pos.TotalMinutes}:{pos.Seconds:00} / {(int)len.TotalMinutes}:{len.Seconds:00}", FontSize = Font("FontCaption"), Foreground = Res<Brush>("MutedText"), VerticalAlignment = VerticalAlignment.Center });
     }
@@ -319,7 +321,7 @@ public sealed partial class XPage : UserControl
         if (_player is null || _playerEpisode != _feed.State.PodcastAt)
         {
             _player?.Dispose();
-            _player = new Windows.Media.Playback.MediaPlayer { Source = Windows.Media.Core.MediaSource.CreateFromUri(new Uri(XFeed.PodcastPath + "?" + _feed.State.PodcastAt?.Ticks)) };
+            _player = new Windows.Media.Playback.MediaPlayer { Source = Windows.Media.Core.MediaSource.CreateFromUri(new Uri(_feed.PodcastPath)) };
             _player.MediaEnded += (_, _) => DispatcherQueue.TryEnqueue(RenderBriefingBar);
             _playerEpisode = _feed.State.PodcastAt;
         }

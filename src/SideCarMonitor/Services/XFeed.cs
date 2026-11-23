@@ -59,6 +59,7 @@ public sealed class XState
     public double PodcastSeconds { get; set; }
     public string PodcastScript { get; set; } = "";
     public bool PodcastCleared { get; set; }
+    public string PodcastFile { get; set; } = "";
     public List<PodcastSegment> PodcastSegments { get; set; } = [];
 }
 
@@ -73,7 +74,9 @@ public sealed class XFeed(XClient x, EventJudge? decision, AgentHost? agent)
 {
     public const double SignalThreshold = 0.5;
     private static readonly string StatePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SideCarMonitor", "x.json");
-    public static string PodcastPath { get; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SideCarMonitor", "x-briefing.wav");
+    private static readonly string AudioFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SideCarMonitor");
+    /// <summary>The current episode's audio (its own file per episode; a player may still hold the last one open).</summary>
+    public string PodcastPath => Path.Combine(AudioFolder, State.PodcastFile.Length > 0 ? State.PodcastFile : "x-briefing.wav");
     private readonly SemaphoreSlim _gate = new(1, 1);
     public XState State { get; } = Load();
     public VoiceService? Voice { get; set; }
@@ -278,9 +281,11 @@ public sealed class XFeed(XClient x, EventJudge? decision, AgentHost? agent)
             var script = await agent.AskAsync(prompt, "xr-", TimeSpan.FromMinutes(4));
             Progress?.Invoke("Recording the audio…");
             var (wav, segments) = await Voice.SynthesizeNarrationAsync(script, CancellationToken.None);
-            var tmp = PodcastPath + ".tmp";
-            await File.WriteAllBytesAsync(tmp, wav);
-            File.Move(tmp, PodcastPath, overwrite: true);
+            var file = $"x-briefing-{DateTime.Now:yyyyMMdd-HHmmss}.wav";
+            await File.WriteAllBytesAsync(Path.Combine(AudioFolder, file), wav);
+            State.PodcastFile = file;
+            foreach (var old in Directory.EnumerateFiles(AudioFolder, "x-briefing*.wav").Where(f => Path.GetFileName(f) != file))
+                try { File.Delete(old); } catch { }
             State.PodcastSegments = segments.Select(sg => new PodcastSegment
             {
                 Start = sg.StartSeconds, Text = sg.Text,
