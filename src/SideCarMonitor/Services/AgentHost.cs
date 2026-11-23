@@ -213,7 +213,7 @@ public sealed class AgentHost : IAsyncDisposable
     /// The turn id starts with <paramref name="idPrefix"/> (e.g. "li-"), so tools treat it as a background turn:
     /// it can't control the home or change tasks.
     /// </summary>
-    public async Task<string> AskAsync(string prompt, string idPrefix, TimeSpan timeout)
+    public async Task<string> AskAsync(string prompt, string idPrefix, TimeSpan timeout, bool fromUser = false, string? userText = null)
     {
         var id = idPrefix + Guid.NewGuid().ToString("N")[..8];
         var last = "";
@@ -224,7 +224,8 @@ public sealed class AgentHost : IAsyncDisposable
         Message += OnMessage; Idle += OnIdle; Error += OnError;
         try
         {
-            await SendChatAsync(prompt, CancellationToken.None, id, fromUser: false);
+            await SendChatAsync(prompt, CancellationToken.None, id, fromUser: fromUser);
+            if (fromUser && userText is not null) _turnText[id] = userText; // what you actually said, for the guards
             return (await done.Task.WaitAsync(timeout)).Trim();
         }
         finally

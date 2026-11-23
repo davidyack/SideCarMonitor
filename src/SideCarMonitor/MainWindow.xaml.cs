@@ -357,6 +357,7 @@ public sealed partial class MainWindow : Window
         if (EventPopup.Visibility != Visibility.Visible && KioskIsBusy) return;
         _popupEvent = ev;
         _popupJoinUrl = null;
+        if (EventPopup.Visibility != Visibility.Visible) PlayChime();
         EventPopupImage.Visibility = Visibility.Visible;
         EventPopupAction.Visibility = Visibility.Visible;
         EventPopupActionText.Text = "Watch live";
@@ -382,6 +383,52 @@ public sealed partial class MainWindow : Window
             };
         }
         _popupTimer.Start();
+    }
+
+    // ---- A very subtle chime when a camera event pops up ----
+    private static byte[]? _chime;
+    private Windows.Media.Playback.MediaPlayer? _chimePlayer;
+
+    /// <summary>Soft two-note "ding" (E6 then A5), quiet, with smooth fades so it never clicks. Made once, in memory.</summary>
+    private static byte[] MakeChime()
+    {
+        const int rate = 24000;
+        var notes = new (double Hz, double Seconds)[] { (1318.5, 0.14), (880.0, 0.26) };
+        var samples = new List<short>();
+        foreach (var (hz, secs) in notes)
+        {
+            var n = (int)(rate * secs);
+            for (var i = 0; i < n; i++)
+            {
+                var t = (double)i / rate;
+                var attack = Math.Min(1, t / 0.008);                // 8 ms fade in
+                var decay = Math.Exp(-t * 9);                        // bell-like tail
+                var env = attack * decay;
+                var v = Math.Sin(2 * Math.PI * hz * t) * 0.6 + Math.Sin(2 * Math.PI * hz * 2 * t) * 0.15;
+                samples.Add((short)(v * env * 0.10 * short.MaxValue)); // about 10% volume: very subtle
+            }
+        }
+        using var ms = new MemoryStream();
+        using var w = new BinaryWriter(ms);
+        w.Write("RIFF"u8); w.Write(36 + samples.Count * 2); w.Write("WAVEfmt "u8); w.Write(16); w.Write((short)1); w.Write((short)1);
+        w.Write(rate); w.Write(rate * 2); w.Write((short)2); w.Write((short)16); w.Write("data"u8); w.Write(samples.Count * 2);
+        foreach (var s in samples) w.Write(s);
+        return ms.ToArray();
+    }
+
+    private async void PlayChime()
+    {
+        try
+        {
+            _chime ??= MakeChime();
+            var stream = new Windows.Storage.Streams.InMemoryRandomAccessStream();
+            using (var writer = new Windows.Storage.Streams.DataWriter(stream)) { writer.WriteBytes(_chime); await writer.StoreAsync(); writer.DetachStream(); }
+            stream.Seek(0);
+            _chimePlayer?.Dispose();
+            _chimePlayer = new Windows.Media.Playback.MediaPlayer { Source = Windows.Media.Core.MediaSource.CreateFromStream(stream, "audio/wav"), Volume = 0.6 };
+            _chimePlayer.Play();
+        }
+        catch { /* a chime must never break the popup */ }
     }
 
     private void FillEventPopup(MotionEvent ev)
@@ -1001,7 +1048,7 @@ public sealed partial class MainWindow : Window
         _agent = new AgentHost(a, credential, DispatcherQueue);
         _voice = new VoiceService(a, credential);
         _judge = EventJudge.Create(a, credential);
-        _linkedIn = new LinkedInFeed(_judge, _agent);
+        _linkedIn = new LinkedInFeed(_judge, _agent) { Voice = _voice };
         LinkedInView.Initialize(_linkedIn);
         LinkedInView.HomeRequested += ShowHome;
         _linkedIn.Changed += () => DispatcherQueue.TryEnqueue(UpdateLinkedInTile);

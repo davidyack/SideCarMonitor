@@ -130,9 +130,112 @@ public sealed partial class LinkedInPage : UserControl
     private TextBlock Heading(string text) =>
         new() { Text = text, FontSize = Font("FontTitle"), FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap };
 
+    // ---- Podcast card: Prepare / player / Done (clears the episode's posts from the feed) ----
+    private MediaPlayerElement? _player;
+    private DateTime? _playerEpisode;
+
+    private Border PodcastCard()
+    {
+        var s = _feed!.State;
+        var card = new StackPanel { Spacing = 8 };
+        var title = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        title.Children.Add(new FontIcon { Glyph = "\uE720", FontSize = Font("FontIcon") });
+        title.Children.Add(new TextBlock { Text = "Podcast", FontSize = Font("FontTitle"), FontWeight = FontWeights.SemiBold });
+        card.Children.Add(title);
+
+        var ready = s.PodcastStatus == "ready" && File.Exists(LinkedInFeed.PodcastPath);
+        var candidates = _feed.PodcastCandidates;
+        if (s.PodcastStatus == "preparing")
+            card.Children.Add(new TextBlock { Text = "Preparing your episode\u2026 (about a minute)", FontSize = Font("FontBody"), Foreground = Res<Brush>("AccentText") });
+        else if (s.PodcastStatus.StartsWith("failed"))
+            card.Children.Add(new TextBlock { Text = $"Couldn't make it: {s.PodcastStatus[7..].Trim()}", FontSize = Font("FontCaption"), Foreground = Res<Brush>("AlertBrush"), TextWrapping = TextWrapping.Wrap });
+
+        if (ready && !s.PodcastCleared)
+        {
+            var minutes = Math.Max(1, (int)Math.Round(s.PodcastSeconds / 60));
+            card.Children.Add(new TextBlock
+            {
+                Text = $"{minutes} min \u00B7 {s.PodcastPostIds.Count} posts \u00B7 made {s.PodcastAt:ddd h:mm tt}",
+                FontSize = Font("FontCaption"), Foreground = Res<Brush>("MutedText"),
+            });
+            if (_player is null || _playerEpisode != s.PodcastAt)
+            {
+                _player?.MediaPlayer?.Pause();
+                _player = new MediaPlayerElement { AreTransportControlsEnabled = true, Height = Res<double>("TouchTarget") * 2.2 };
+                _player.TransportControls.IsCompact = false;
+                _player.TransportControls.IsSkipBackwardButtonVisible = true;
+                _player.TransportControls.IsSkipForwardButtonVisible = true;
+                _player.TransportControls.IsSkipBackwardEnabled = true;
+                _player.TransportControls.IsSkipForwardEnabled = true;
+                _player.TransportControls.IsZoomButtonVisible = false;
+                _player.Source = Windows.Media.Core.MediaSource.CreateFromUri(new Uri(LinkedInFeed.PodcastPath + "?" + s.PodcastAt?.Ticks));
+                _playerEpisode = s.PodcastAt;
+            }
+            card.Children.Add(_player);
+
+            // Interrupt: pause, listen to what you want to do about the story playing, save it as a to-do, resume.
+            var interruptNote = new TextBlock { FontSize = Font("FontCaption"), Foreground = Res<Brush>("AccentText"), TextWrapping = TextWrapping.Wrap };
+            var interrupt = Action("\u270B Interrupt", "TileAmber", () => { });
+            interrupt.Click += async (_, _) =>
+            {
+                var mp = _player?.MediaPlayer;
+                if (mp is null || _feed.Voice is null) return;
+                var position = mp.PlaybackSession.Position.TotalSeconds;
+                var wasPlaying = mp.PlaybackSession.PlaybackState == Windows.Media.Playback.MediaPlaybackState.Playing;
+                mp.Pause();
+                interrupt.IsEnabled = false;
+                interruptNote.Text = "Listening\u2026 say what you want to do (e.g. \u201Cfollow up with them on this\u201D)";
+                try
+                {
+                    var said = await _feed.Voice.ListenOnceAsync(partial => DispatcherQueue.TryEnqueue(() => interruptNote.Text = $"\u201C{partial}\u201D"), CancellationToken.None);
+                    if (string.IsNullOrWhiteSpace(said)) interruptNote.Text = "Didn't catch that. Resuming.";
+                    else
+                    {
+                        interruptNote.Text = $"\u201C{said}\u201D \u2026 saving";
+                        interruptNote.Text = await Task.Run(() => _feed.InterruptAsync(said, position));
+                    }
+                }
+                catch (Exception ex) { interruptNote.Text = $"Couldn't save that: {ex.Message}"; }
+                interrupt.IsEnabled = true;
+                if (wasPlaying || position > 0) mp.Play();
+            };
+            card.Children.Add(interrupt);
+            card.Children.Add(interruptNote);
+
+            var done = new CheckBox { Content = $"Done: clear these {s.PodcastPostIds.Count} posts from the feed", FontSize = Font("FontBody") };
+            done.Checked += (_, _) =>
+            {
+                _player?.MediaPlayer?.Pause();
+                var n = _feed.ClearPodcastPosts();
+                SubtitleText.Text = $"Cleared {n} posts (still on their profiles)";
+            };
+            card.Children.Add(done);
+        }
+        else if (ready && s.PodcastCleared)
+            card.Children.Add(new TextBlock { Text = $"Last episode ({s.PodcastAt:ddd h:mm tt}) is done.", FontSize = Font("FontCaption"), Foreground = Res<Brush>("MutedText") });
+
+        if (s.PodcastStatus != "preparing" && candidates > 0 && (!ready || s.PodcastCleared || candidates != s.PodcastPostIds.Count))
+        {
+            var prepare = Action(ready && !s.PodcastCleared ? $"New episode ({candidates} posts)" : $"Prepare episode ({candidates} posts)", "TileCobalt", () => { });
+            prepare.Click += async (_, _) =>
+            {
+                prepare.IsEnabled = false;
+                var error = await Task.Run(() => _feed.PreparePodcastAsync());
+                if (error is not null) SubtitleText.Text = error;
+                Render(keepScroll: true);
+            };
+            card.Children.Add(prepare);
+        }
+        else if (!ready && candidates == 0)
+            card.Children.Add(new TextBlock { Text = "No signal posts to cover yet.", FontSize = Font("FontCaption"), Foreground = Res<Brush>("MutedText") });
+
+        return new Border { Child = card, Padding = Res<Thickness>("PanelPadding"), CornerRadius = Res<CornerRadius>("SmallCorner"), Background = Res<Brush>("KioskBackground"), Margin = new Thickness(0, 0, 0, 8) };
+    }
+
     private void RenderDigest()
     {
         SidePanel.Children.Clear();
+        SidePanel.Children.Add(PodcastCard());
         var s = _feed!.State;
         SidePanel.Children.Add(Heading("Today's digest"));
         SidePanel.Children.Add(new TextBlock

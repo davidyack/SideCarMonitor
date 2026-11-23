@@ -88,6 +88,13 @@ data class LinkedInInfo(
     val available: Boolean = false, val running: Boolean = false, val needsAttention: Boolean = false,
     val lastRun: String? = null, val lastRunResult: String = "", val digest: String = "",
     val signal: List<LiPost> = emptyList(), val noise: List<LiPost> = emptyList(),
+    val podcast: LiPodcast = LiPodcast(),
+)
+
+@Serializable
+data class LiPodcast(
+    val status: String = "", val at: String? = null, val seconds: Double = 0.0, val posts: Int = 0,
+    val cleared: Boolean = false, val candidates: Int = 0,
 )
 
 @Serializable
@@ -170,6 +177,23 @@ class SideCarClient(private val pairing: Pairing) {
         postJson("/api/linkedin/label", buildJsonObject { put("id", id); put("signal", signal) })
 
     suspend fun linkedInRun() = postJson("/api/linkedin/run", buildJsonObject { })
+
+    suspend fun linkedInPodcastPrepare() = postJson("/api/linkedin/podcast", buildJsonObject { })
+    suspend fun linkedInPodcastClear() = postJson("/api/linkedin/podcast/clear", buildJsonObject { })
+
+    /** Interrupt: what you said and where the episode was; returns SideCar's short confirmation. */
+    suspend fun linkedInPodcastInterrupt(text: String, positionSeconds: Double): String = withContext(Dispatchers.IO) {
+        val body = buildJsonObject { put("text", text); put("position", positionSeconds) }.toString()
+            .toRequestBody("application/json".toMediaType())
+        call(Request.Builder().url("$base/api/linkedin/podcast/interrupt").post(body).build()).use {
+            json.parseToJsonElement(it.body.string()).jsonObject["reply"]?.jsonPrimitive?.content ?: "Saved"
+        }
+    }
+
+    /** Downloads the episode's audio (WAV) through the pinned connection. */
+    suspend fun linkedInPodcastAudio(): ByteArray = withContext(Dispatchers.IO) {
+        call(Request.Builder().url("$base/api/linkedin/podcast/audio").build()).use { it.body.bytes() }
+    }
 
     suspend fun linkedInPerson(url: String): LiPerson = withContext(Dispatchers.IO) {
         val u = "$base/api/linkedin/person?url=" + java.net.URLEncoder.encode(url, "UTF-8")

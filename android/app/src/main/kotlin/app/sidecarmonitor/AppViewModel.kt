@@ -148,6 +148,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun linkedIn(): app.sidecarmonitor.data.LinkedInInfo? = runCatching { client?.linkedIn() }.getOrNull()
     suspend fun linkedInLabel(id: String, signal: Boolean): String? = client?.linkedInLabel(id, signal) ?: "Not connected"
     suspend fun linkedInRun(): String? = client?.linkedInRun() ?: "Not connected"
+    suspend fun linkedInPodcastPrepare(): String? = client?.linkedInPodcastPrepare() ?: "Not connected"
+    suspend fun linkedInPodcastClear(): String? = client?.linkedInPodcastClear() ?: "Not connected"
+
+    /** Podcast Interrupt: record what you say (stops when you pause), have the kiosk transcribe it, and save it. */
+    suspend fun podcastInterrupt(positionSeconds: Double, onHeard: (String) -> Unit): String {
+        val c = client ?: return "Not connected"
+        val wav = app.sidecarmonitor.data.VoiceRecorder().record()
+        val said = runCatching { c.listen(wav) }.getOrElse { return "Couldn't hear that: ${it.message}" }
+        if (said.isBlank()) return "Didn't catch that"
+        onHeard(said)
+        return runCatching { c.linkedInPodcastInterrupt(said, positionSeconds) }.getOrElse { "Couldn't save that: ${it.message}" }
+    }
+    suspend fun linkedInPodcastAudio(): ByteArray? = runCatching { client?.linkedInPodcastAudio() }.getOrNull()
     suspend fun linkedInPerson(url: String): app.sidecarmonitor.data.LiPerson? = runCatching { client?.linkedInPerson(url) }.getOrNull()
     suspend fun linkedInRefresh(url: String): String? = client?.linkedInRefresh(url) ?: "Not connected"
 

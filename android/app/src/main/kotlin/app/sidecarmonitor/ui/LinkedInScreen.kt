@@ -63,7 +63,7 @@ fun LinkedInScreen(vm: AppViewModel, onBack: () -> Unit) {
             else -> i.lastRunResult.ifBlank { "Not read yet: tap Run now" }
         }
     }
-    LaunchedEffect(Unit) { while (true) { reload(); delay(if (info?.running == true) 5_000 else 60_000) } }
+    LaunchedEffect(Unit) { while (true) { reload(); delay(if (info?.running == true || info?.podcast?.status == "preparing") 5_000 else 60_000) } }
 
     person?.let { url ->
         BackHandler { person = null }
@@ -85,6 +85,7 @@ fun LinkedInScreen(vm: AppViewModel, onBack: () -> Unit) {
             maxLines = 1, overflow = TextOverflow.Ellipsis)
         val posts = if (tab == "signal") info?.signal.orEmpty() else info?.noise.orEmpty()
         LazyColumn(Modifier.padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (tab == "signal") info?.let { i -> item { PodcastCard(vm, i) { scope.launch { reload() } } } }
             val digest = info?.digest.orEmpty()
             if (tab == "signal" && digest.isNotBlank()) item {
                 Column(Modifier.fillMaxWidth().background(SideCarColors.Panel).padding(12.dp)) {
@@ -159,5 +160,99 @@ private fun PersonView(vm: AppViewModel, url: String, onBack: () -> Unit) {
             items(p?.posts.orEmpty(), key = { it.id }) { post -> PostCard(post, onLabel = null, onProfile = null, compact = true) }
             item { Spacer(Modifier.height(96.dp)) }
         }
+    }
+}
+
+
+/**
+ * Podcast: an audio rundown of your signal posts, made on the kiosk. Downloads the episode and plays it here with
+ * play/pause, back 15 s, forward 30 s and a seek bar. "Done" clears the episode's posts from the feed (they stay on
+ * profiles).
+ */
+@Composable
+private fun PodcastCard(vm: AppViewModel, info: LinkedInInfo, onChanged: () -> Unit) {
+    val p = info.podcast
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var player by remember { mutableStateOf<android.media.MediaPlayer?>(null) }
+    var loadedFor by remember { mutableStateOf<String?>(null) }
+    var playing by remember { mutableStateOf(false) }
+    var position by remember { mutableStateOf(0) }
+    var duration by remember { mutableStateOf(0) }
+    var note by remember { mutableStateOf("") }
+
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { player?.release(); player = null } }
+    LaunchedEffect(playing) { while (playing) { position = player?.currentPosition ?: 0; delay(500) } }
+
+    suspend fun load(): android.media.MediaPlayer? {
+        if (player != null && loadedFor == p.at) return player
+        note = "Downloading the episode\u2026"
+        val bytes = vm.linkedInPodcastAudio() ?: run { note = "Couldn't download the episode"; return null }
+        val file = java.io.File(context.cacheDir, "linkedin-podcast.wav").apply { writeBytes(bytes) }
+        player?.release()
+        val mp = android.media.MediaPlayer().apply {
+            setAudioAttributes(android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH).build())
+            setDataSource(file.absolutePath)
+            prepare()
+            setOnCompletionListener { playing = false; position = duration }
+        }
+        player = mp; loadedFor = p.at; duration = mp.duration; note = ""
+        return mp
+    }
+
+    Column(Modifier.fillMaxWidth().background(SideCarColors.Panel).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Podcast", fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+        val ready = p.status == "ready" && !p.cleared
+        when {
+            p.status == "preparing" -> Text("Preparing your episode on the kiosk\u2026", color = Color(0xFF6CB4FF), fontSize = 14.sp)
+            p.status.startsWith("failed") -> Text("Couldn't make it: ${p.status.removePrefix("failed:").trim()}", color = SideCarColors.Alert, fontSize = 13.sp)
+        }
+        if (ready) {
+            Text("${maxOf(1, (p.seconds / 60).toInt())} min \u00B7 ${p.posts} posts", color = SideCarColors.Muted, fontSize = 13.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                ActionChip("\u21BA 15", SideCarColors.Steel) { player?.let { it.seekTo(maxOf(0, it.currentPosition - 15_000)); position = it.currentPosition } }
+                ActionChip(if (playing) "Pause" else "Play", LinkedInBlue) {
+                    scope.launch {
+                        val mp = load() ?: return@launch
+                        if (playing) { mp.pause(); playing = false } else { mp.start(); playing = true }
+                    }
+                }
+                ActionChip("30 \u21BB", SideCarColors.Steel) { player?.let { it.seekTo(minOf(it.duration, it.currentPosition + 30_000)); position = it.currentPosition } }
+            }
+            ActionChip(if (note.startsWith("Listening")) "Listening\u2026" else "\u270B Interrupt", SideCarColors.Amber) {
+                if (note.startsWith("Listening")) return@ActionChip
+                scope.launch {
+                    val mp = load() ?: return@launch
+                    val wasPlaying = playing
+                    mp.pause(); playing = false
+                    note = "Listening\u2026 say what you want to do (e.g. \u201Cfollow up with them on this\u201D)"
+                    note = vm.podcastInterrupt(mp.currentPosition / 1000.0) { heard -> note = "\u201C$heard\u201D \u2026 saving" }
+                    if (wasPlaying || mp.currentPosition > 0) { mp.start(); playing = true }
+                }
+            }
+            if (duration > 0) {
+                androidx.compose.material3.Slider(
+                    value = position.toFloat(), valueRange = 0f..duration.toFloat(),
+                    onValueChange = { position = it.toInt() }, onValueChangeFinished = { player?.seekTo(position) })
+                Text("${position / 60000}:${"%02d".format(position / 1000 % 60)} / ${duration / 60000}:${"%02d".format(duration / 1000 % 60)}",
+                    color = SideCarColors.Muted, fontSize = 12.sp)
+            }
+            Row(Modifier.clickable {
+                    player?.pause(); playing = false
+                    scope.launch { vm.linkedInPodcastClear(); onChanged() }
+                }, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                androidx.compose.material3.Checkbox(checked = false, onCheckedChange = {
+                    player?.pause(); playing = false
+                    scope.launch { vm.linkedInPodcastClear(); onChanged() }
+                })
+                Text("Done: clear these ${p.posts} posts from the feed", fontSize = 14.sp)
+            }
+        } else if (p.status == "ready" && p.cleared) Text("Last episode is done.", color = SideCarColors.Muted, fontSize = 13.sp)
+        if (p.status != "preparing" && p.candidates > 0 && (!ready || p.candidates != p.posts))
+            ActionChip(if (ready) "New episode (${p.candidates} posts)" else "Prepare episode (${p.candidates} posts)", LinkedInBlue) {
+                scope.launch { vm.linkedInPodcastPrepare(); delay(1500); onChanged() }
+            }
+        if (note.isNotBlank()) Text(note, color = SideCarColors.Muted, fontSize = 13.sp)
     }
 }

@@ -1,4 +1,5 @@
-using System.Security;
+﻿using System.Security;
+using System.Text;
 using Azure.Core;
 using Microsoft.CognitiveServices.Speech;
 using Microsoft.CognitiveServices.Speech.Audio;
@@ -171,6 +172,76 @@ public sealed class VoiceService : IDisposable
         if (result.Reason == ResultReason.Canceled)
             throw new InvalidOperationException(SpeechSynthesisCancellationDetails.FromResult(result).ErrorDetails);
         return result.AudioData;
+    }
+
+    private static readonly HashSet<string> NewscastStyles = ["narrator", "excited", "determined", "hopeful", "joyful", "happy", "neutral", "audiobook", "educational"];
+
+    /// <summary>
+    /// Long-form, expressive narration (the LinkedIn podcast): MAI-Voice-2.1 (not Flash), 24 kHz.
+    /// Each paragraph may start with a delivery tag like [excited] or [narrator]; tags become speaking styles with a
+    /// short pause between segments, so it sounds like a newscaster rather than a flat read.
+    /// </summary>
+    public sealed record NarrationSegment(double StartSeconds, string Text, List<string> Refs);
+
+    public async Task<byte[]> SynthesizeNarrationWavAsync(string taggedScript, CancellationToken ct) =>
+        (await SynthesizeNarrationAsync(taggedScript, ct)).Wav;
+
+    /// <summary>Like SynthesizeNarrationWavAsync, plus when each paragraph starts and which items (P1, P2...) it covers.</summary>
+    public async Task<(byte[] Wav, List<NarrationSegment> Segments)> SynthesizeNarrationAsync(string taggedScript, CancellationToken ct)
+    {
+        var segments = new List<NarrationSegment>();
+        var starts = new Dictionary<int, double>();
+        var config = CreateConfig();
+        config.SetSpeechSynthesisOutputFormat(SpeechSynthesisOutputFormat.Riff24Khz16BitMonoPcm);
+        using var synth = new SpeechSynthesizer(config, null as AudioConfig);
+        synth.BookmarkReached += (_, e) =>
+        {
+            if (e.Text.StartsWith("s") && int.TryParse(e.Text[1..], out var i)) lock (starts) starts[i] = e.AudioOffset / 10_000_000.0;
+        };
+        var voice = _settings.Voice.Replace(":MAI-Voice-2.1-Flash", ":MAI-Voice-2.1");
+        var lang = voice.Length >= 5 ? voice[..5] : "en-US";
+        var body = new StringBuilder();
+        foreach (var raw in taggedScript.Split("\n\n", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var style = "narrator";
+            var text = raw;
+            var refs = new List<string>();
+            var m = System.Text.RegularExpressions.Regex.Match(raw, @"^\[([^\]]+)\]\s*");
+            if (m.Success)
+            {
+                text = raw[m.Length..];
+                foreach (var part in m.Groups[1].Value.Split([' ', ','], StringSplitOptions.RemoveEmptyEntries))
+                {
+                    if (NewscastStyles.Contains(part.ToLowerInvariant())) style = part.ToLowerInvariant();
+                    else if (System.Text.RegularExpressions.Regex.IsMatch(part, @"^P\d+$", System.Text.RegularExpressions.RegexOptions.IgnoreCase)) refs.Add(part.ToUpperInvariant());
+                }
+            }
+            text = ForSpeech(System.Text.RegularExpressions.Regex.Replace(text, @"\[[^\]]*\]", "").Trim());
+            if (text.Length == 0) continue;
+            var index = segments.Count;
+            segments.Add(new NarrationSegment(0, text, refs));
+            body.Append($"<bookmark mark=\"s{index}\"/><mstts:express-as style=\"{style}\">{SecurityElement.Escape(text)}</mstts:express-as><break time=\"650ms\"/>");
+        }
+        var ssml = $"""
+            <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="http://www.w3.org/2001/mstts" xml:lang="{lang}">
+              <voice name="{SecurityElement.Escape(voice)}">{body}</voice>
+            </speak>
+            """;
+        using var result = await synth.SpeakSsmlAsync(ssml).WaitAsync(ct);
+        if (result.Reason == ResultReason.Canceled)
+            throw new InvalidOperationException(SpeechSynthesisCancellationDetails.FromResult(result).ErrorDetails);
+        // Segment start times from the bookmarks; if a bookmark didn't come back, estimate by text length.
+        var total = Math.Max(0, result.AudioData.Length - 44) / 48000.0;
+        var chars = Math.Max(1, segments.Sum(s => s.Text.Length));
+        double running = 0;
+        for (var i = 0; i < segments.Count; i++)
+        {
+            double start;
+            lock (starts) start = starts.TryGetValue(i, out var t) ? t : running;
+            segments[i] = segments[i] with { StartSeconds = start };
+            running = start + total * segments[i].Text.Length / chars;
+        }
+        return (result.AudioData, segments);
     }
 
     /// <summary>Returns the PCM samples of a WAV file (the "data" chunk), or the bytes as-is if there's no RIFF header.</summary>

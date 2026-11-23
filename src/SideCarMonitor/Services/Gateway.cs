@@ -139,7 +139,38 @@ public sealed class Gateway : IAsyncDisposable
                 available = true, running = li.IsRunning, needsAttention = s.NeedsAttention,
                 lastRun = s.LastRun, lastRunResult = s.LastRunResult, digest = s.Digest, digestAt = s.DigestAt,
                 signal = li.Signal.Take(60).Select(PostJson), noise = li.Noise.Take(60).Select(PostJson),
+                podcast = new
+                {
+                    status = s.PodcastStatus, at = s.PodcastAt, seconds = Math.Round(s.PodcastSeconds), posts = s.PodcastPostIds.Count,
+                    cleared = s.PodcastCleared, candidates = li.PodcastCandidates,
+                },
             });
+        });
+
+        // Podcast: prepare an episode, download its audio, and "Done" (clears its posts from the feed).
+        app.MapPost("/api/linkedin/podcast", () =>
+        {
+            if (LinkedIn is not { } li) return Results.NotFound();
+            _ = Task.Run(() => li.PreparePodcastAsync());
+            return Results.Ok(new { ok = true });
+        });
+        app.MapGet("/api/linkedin/podcast/audio", () =>
+            File.Exists(LinkedInFeed.PodcastPath)
+                ? Results.File(File.ReadAllBytes(LinkedInFeed.PodcastPath), "audio/wav", enableRangeProcessing: true)
+                : Results.NotFound());
+        // Interrupt from the phone: what you said (already transcribed) and where the episode was.
+        app.MapPost("/api/linkedin/podcast/interrupt", async (JsonObject body) =>
+        {
+            if (LinkedIn is not { } li) return Results.NotFound();
+            var said = body["text"]?.GetValue<string>() ?? "";
+            if (said.Trim().Length == 0) return Results.BadRequest(new { error = "Nothing said" });
+            var reply = await li.InterruptAsync(said, body["position"]?.GetValue<double>() ?? 0);
+            return Results.Ok(new { reply });
+        });
+        app.MapPost("/api/linkedin/podcast/clear", () =>
+        {
+            if (LinkedIn is not { } li) return Results.NotFound();
+            return Results.Ok(new { cleared = li.ClearPodcastPosts() });
         });
 
         // Your Noise / Not noise tap (this is how it learns).
