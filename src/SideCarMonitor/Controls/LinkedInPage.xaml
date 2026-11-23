@@ -17,6 +17,7 @@
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <Button Click="Home_Click" Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}"
                     CornerRadius="{StaticResource SmallCorner}" FontSize="{StaticResource FontBody}" AutomationProperties.Name="Home">
@@ -29,16 +30,15 @@
                 <TextBlock Text="LinkedIn" FontSize="{StaticResource FontTitle}" FontWeight="SemiBold" />
                 <TextBlock x:Name="SubtitleText" FontSize="{StaticResource FontCaption}" Foreground="{StaticResource MutedText}" TextTrimming="CharacterEllipsis" />
             </StackPanel>
-            <StackPanel x:Name="Tabs" Grid.Column="2" Orientation="Horizontal" Spacing="{StaticResource SmallGap}">
+            <!-- Briefing: one big Play; while playing, Pause / Interrupt / Done -->
+            <StackPanel x:Name="BriefingBar" Grid.Column="2" Orientation="Horizontal" Spacing="{StaticResource SmallGap}" Margin="0,0,16,0" />
+            <StackPanel x:Name="Tabs" Grid.Column="3" Orientation="Horizontal" Spacing="{StaticResource SmallGap}">
                 <Button x:Name="SignalTab" Tag="signal" Click="Tab_Click" FontSize="{StaticResource FontBody}" Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}" />
                 <Button x:Name="NoiseTab" Tag="noise" Click="Tab_Click" FontSize="{StaticResource FontBody}" Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}" />
             </StackPanel>
-            <Button x:Name="RunButton" Grid.Column="3" Click="Run_Click" Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}"
+            <Button x:Name="RunButton" Grid.Column="4" Click="Run_Click" AutomationProperties.Name="Read LinkedIn now" ToolTipService.ToolTip="Read LinkedIn now" Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}"
                     CornerRadius="{StaticResource SmallCorner}" FontSize="{StaticResource FontBody}" Background="{StaticResource TileCobalt}" Foreground="White">
-                <StackPanel Orientation="Horizontal" Spacing="{StaticResource Gap}">
-                    <FontIcon Glyph="&#xE72C;" FontSize="{StaticResource FontIcon}" />
-                    <TextBlock Text="Run now" VerticalAlignment="Center" />
-                </StackPanel>
+                <FontIcon Glyph="&#xE72C;" FontSize="{StaticResource FontIcon}" />
             </Button>
         </Grid>
 

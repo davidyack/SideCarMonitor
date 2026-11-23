@@ -1049,7 +1049,7 @@ public sealed partial class MainWindow : Window
         _agent = new AgentHost(a, credential, DispatcherQueue);
         _voice = new VoiceService(a, credential);
         _judge = EventJudge.Create(a, credential);
-        _linkedIn = new LinkedInFeed(_judge, _agent) { Voice = _voice };
+        _linkedIn = new LinkedInFeed(_judge, _agent) { Voice = _voice, Tasks = _taskService };
         LinkedInView.Initialize(_linkedIn);
         LinkedInView.HomeRequested += ShowHome;
         _linkedIn.Changed += () => DispatcherQueue.TryEnqueue(UpdateLinkedInTile);
