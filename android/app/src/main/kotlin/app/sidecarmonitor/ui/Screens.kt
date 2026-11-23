@@ -28,6 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
@@ -71,7 +72,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
-enum class Screen { Home, Cameras, Weather, Activity, Tasks, Week, House, Settings }
+enum class Screen { Home, Cameras, Weather, Activity, Tasks, Week, House, LinkedIn, Settings }
 
 private fun JsonObject?.str(key: String): String? =
     this?.get(key)?.let { runCatching { it.jsonPrimitive.content }.getOrNull() }?.takeIf { it != "null" }
@@ -122,13 +123,15 @@ fun HomeScreen(state: UiState, onOpen: (Screen) -> Unit, onTalk: () -> Unit) {
         val todo = state.tasks?.views
         val needs = todo?.needsMe.orEmpty()
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Tile(if (needs.isNotEmpty()) SideCarColors.Crimson else SideCarColors.Emerald, Modifier.weight(2f).height(130.dp),
+            Tile(if (needs.isNotEmpty()) SideCarColors.Crimson else SideCarColors.Emerald, Modifier.weight(1.4f).height(130.dp),
                 onClick = { onOpen(Screen.Tasks) }, icon = Icons.Filled.Checklist,
                 value = (todo?.today?.size ?: 0).toString(),
                 detail = if (needs.isNotEmpty()) "${needs.size} need${if (needs.size == 1) "s" else ""} you"
                          else todo?.today?.firstOrNull()?.title ?: "Nothing for today",
                 label = "To-do")
-            Tile(SideCarColors.Steel, Modifier.weight(1f).height(130.dp), onClick = { onOpen(Screen.Settings) },
+            Tile(Color(0xFF0A66C2), Modifier.weight(1f).height(130.dp), onClick = { onOpen(Screen.LinkedIn) },
+                icon = Icons.Filled.Groups, value = "", detail = "Signal", label = "LinkedIn")
+            Tile(SideCarColors.Steel, Modifier.weight(0.8f).height(130.dp), onClick = { onOpen(Screen.Settings) },
                 icon = Icons.Filled.Settings, value = "", detail = "", label = "Settings")
         }
     }

@@ -93,6 +93,65 @@ public sealed class Gateway : IAsyncDisposable
         Key = LoadOrCreateKey();
     }
 
+    /// <summary>LinkedIn tile data for the phone; null when it isn't set up.</summary>
+    public LinkedInFeed? LinkedIn { get; set; }
+
+    private static object PostJson(LiPost p) => new
+    {
+        id = p.Id, author = p.Author, authorUrl = p.AuthorUrl, headline = p.Headline, age = p.Age, context = p.Context,
+        text = p.Text, link = p.Link, promoted = p.Promoted, signal = p.IsSignal, yours = p.YourLabel, score = Math.Round(p.Score, 2),
+    };
+
+    private void MapLinkedIn(WebApplication app)
+    {
+        app.MapGet("/api/linkedin", () =>
+        {
+            if (LinkedIn is not { } li) return Results.Json(new { available = false });
+            var s = li.State;
+            return Results.Json(new
+            {
+                available = true, running = li.IsRunning, needsAttention = s.NeedsAttention,
+                lastRun = s.LastRun, lastRunResult = s.LastRunResult, digest = s.Digest, digestAt = s.DigestAt,
+                signal = li.Signal.Take(60).Select(PostJson), noise = li.Noise.Take(60).Select(PostJson),
+            });
+        });
+
+        // Your Noise / Not noise tap (this is how it learns).
+        app.MapPost("/api/linkedin/label", (JsonObject body) =>
+        {
+            if (LinkedIn is not { } li) return Results.NotFound();
+            li.Label(body["id"]?.GetValue<string>() ?? "", body["signal"]?.GetValue<bool>() == true);
+            return Results.Ok(new { ok = true });
+        });
+
+        app.MapPost("/api/linkedin/run", () =>
+        {
+            if (LinkedIn is not { } li) return Results.NotFound();
+            if (!li.IsRunning) _ = Task.Run(() => li.RunAsync(manual: true));
+            return Results.Ok(new { ok = true });
+        });
+
+        app.MapGet("/api/linkedin/person", async (string url) =>
+        {
+            if (LinkedIn is not { } li) return Results.NotFound();
+            if (!li.EnsurePerson(url)) return Results.NotFound();
+            var summary = await li.SummarizePersonAsync(url);
+            var person = li.State.People[url];
+            return Results.Json(new
+            {
+                url, name = person.Name, headline = person.Headline, summary,
+                posts = person.PostIds.Select(id => li.State.Posts.GetValueOrDefault(id)).Where(p => p is not null).Take(20).Select(p => PostJson(p!)),
+            });
+        });
+
+        app.MapPost("/api/linkedin/person/refresh", async (JsonObject body) =>
+        {
+            if (LinkedIn is not { } li) return Results.NotFound();
+            var added = await li.RefreshPersonAsync(body["url"]?.GetValue<string>() ?? "");
+            return Results.Ok(new { added });
+        });
+    }
+
     /// <summary>Home Assistant for the phone's House screen; null when it isn't set up.</summary>
     public HomeAssistantBridge? Home { get; set; }
 
@@ -162,6 +221,7 @@ public sealed class Gateway : IAsyncDisposable
 
         MapTasks(app);
         MapHome(app);
+        MapLinkedIn(app);
 
         // Speech-to-text: body is 16 kHz, 16-bit, mono PCM WAV recorded on the phone or watch.
         app.MapPost("/api/listen", async (HttpRequest req, CancellationToken ct) =>

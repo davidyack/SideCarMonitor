@@ -29,6 +29,7 @@ import app.sidecarmonitor.ui.AssistantPanel
 import app.sidecarmonitor.ui.CamerasScreen
 import app.sidecarmonitor.ui.HomeScreen
 import app.sidecarmonitor.ui.HouseScreen
+import app.sidecarmonitor.ui.LinkedInScreen
 import app.sidecarmonitor.ui.MicFab
 import app.sidecarmonitor.ui.PairScreen
 import app.sidecarmonitor.ui.Screen
@@ -104,6 +105,7 @@ class MainActivity : ComponentActivity() {
                                 else WeekScreen(state.week, state.taskMessage, onMove = vm::moveTaskToDay, onToggleDone = vm::toggleDone,
                                     onOpen = vm::openTask, onWeek = vm::shiftWeek) { screen = Screen.Tasks }
                             Screen.House -> HouseScreen(vm) { screen = Screen.Home }
+                    Screen.LinkedIn -> LinkedInScreen(vm) { screen = Screen.Home }
                     Screen.Settings -> SettingsScreen(state, onScan = ::scan, onUnpair = vm::unpair) { screen = Screen.Home }
                         }
                         if (!state.assistantOpen) MicFab(::talk, Modifier.align(Alignment.BottomEnd).padding(20.dp))

@@ -144,6 +144,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     suspend fun snapshot(index: Int): ByteArray? = runCatching { client?.snapshot(index) }.getOrNull()
 
+    // ---- LinkedIn (read and sorted by the kiosk) ----
+    suspend fun linkedIn(): app.sidecarmonitor.data.LinkedInInfo? = runCatching { client?.linkedIn() }.getOrNull()
+    suspend fun linkedInLabel(id: String, signal: Boolean): String? = client?.linkedInLabel(id, signal) ?: "Not connected"
+    suspend fun linkedInRun(): String? = client?.linkedInRun() ?: "Not connected"
+    suspend fun linkedInPerson(url: String): app.sidecarmonitor.data.LiPerson? = runCatching { client?.linkedInPerson(url) }.getOrNull()
+    suspend fun linkedInRefresh(url: String): String? = client?.linkedInRefresh(url) ?: "Not connected"
+
     // ---- House (Home Assistant through the kiosk) ----
     suspend fun home(): app.sidecarmonitor.data.HomeInfo? = runCatching { client?.home() }.getOrNull()
     suspend fun homeSet(d: app.sidecarmonitor.data.HomeDevice, on: Boolean): String? = client?.homeSet(d, on) ?: "Not connected"

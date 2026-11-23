@@ -210,6 +210,17 @@ public sealed class LinkedInFeed
         if (!person.PostIds.Contains(post.Id)) person.PostIds.Insert(0, post.Id);
     }
 
+    /// <summary>Makes a profile from this author's posts if there isn't one yet (e.g. a noise post). False if unknown.</summary>
+    public bool EnsurePerson(string url)
+    {
+        if (State.People.ContainsKey(url)) return true;
+        var posts = State.Posts.Values.Where(p => p.AuthorUrl == url).OrderBy(p => p.FirstSeen).ToList();
+        if (posts.Count == 0) return false;
+        foreach (var p in posts) AddToProfile(p);
+        Save();
+        return true;
+    }
+
     // ---- Your labels (this is how it learns) ------------------------------------------------------
 
     public void Label(string postId, bool signal)
@@ -217,7 +228,7 @@ public sealed class LinkedInFeed
         if (!State.Posts.TryGetValue(postId, out var post)) return;
         post.YourLabel = signal ? "signal" : "noise";
         post.LabeledAt = DateTime.Now;
-        if (signal) AddToProfile(post);
+        AddToProfile(post); // so Profile works for anyone you label, signal or not
         Save();
     }
 

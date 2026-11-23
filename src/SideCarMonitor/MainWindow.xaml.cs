@@ -868,6 +868,7 @@ public sealed partial class MainWindow : Window
                 _agent, _voice, DispatcherQueue, StatusForPhone, SnapshotAsync, _taskService,
                 _taskTools is null ? null : id => _taskTools.ReviewAsync(id, explicitRequest: true)));
             _gateway.Home = _home;
+            _gateway.LinkedIn = _linkedIn;
             await _gateway.StartAsync();
         }
         catch (Exception ex)

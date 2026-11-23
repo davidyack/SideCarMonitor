@@ -76,6 +76,23 @@ data class HomeInfo(
     val recent: List<String> = emptyList(),
 )
 
+@Serializable
+data class LiPost(
+    val id: String, val author: String = "", val authorUrl: String = "", val headline: String = "", val age: String = "",
+    val context: String = "", val text: String = "", val link: String = "", val promoted: Boolean = false,
+    val signal: Boolean = false, val yours: String? = null, val score: Double = 0.0,
+)
+
+@Serializable
+data class LinkedInInfo(
+    val available: Boolean = false, val running: Boolean = false, val needsAttention: Boolean = false,
+    val lastRun: String? = null, val lastRunResult: String = "", val digest: String = "",
+    val signal: List<LiPost> = emptyList(), val noise: List<LiPost> = emptyList(),
+)
+
+@Serializable
+data class LiPerson(val url: String, val name: String = "", val headline: String = "", val summary: String = "", val posts: List<LiPost> = emptyList())
+
 /** One message from the agent over the chat WebSocket. */
 data class ChatEvent(val type: String, val id: String?, val text: String?, val name: String?, val message: String?)
 
@@ -138,6 +155,22 @@ class SideCarClient(private val pairing: Pairing) {
             .post(body.toString().toRequestBody("application/json".toMediaType())).build()
         runCatching { call(req).use { null } }.getOrElse { it.message ?: "Failed" }
     }
+
+    suspend fun linkedIn(): LinkedInInfo = withContext(Dispatchers.IO) {
+        call(Request.Builder().url("$base/api/linkedin").build()).use { json.decodeFromString(it.body.string()) }
+    }
+
+    suspend fun linkedInLabel(id: String, signal: Boolean) =
+        postJson("/api/linkedin/label", buildJsonObject { put("id", id); put("signal", signal) })
+
+    suspend fun linkedInRun() = postJson("/api/linkedin/run", buildJsonObject { })
+
+    suspend fun linkedInPerson(url: String): LiPerson = withContext(Dispatchers.IO) {
+        val u = "$base/api/linkedin/person?url=" + java.net.URLEncoder.encode(url, "UTF-8")
+        call(Request.Builder().url(u).build()).use { json.decodeFromString(it.body.string()) }
+    }
+
+    suspend fun linkedInRefresh(url: String) = postJson("/api/linkedin/person/refresh", buildJsonObject { put("url", url) })
 
     suspend fun homeSet(d: HomeDevice, on: Boolean) =
         postJson("/api/home/set", buildJsonObject { put("name", d.name); put("domain", d.domain); put("on", on) })

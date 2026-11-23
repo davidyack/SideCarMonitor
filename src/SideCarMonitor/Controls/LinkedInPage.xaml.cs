@@ -151,14 +151,7 @@ public sealed partial class LinkedInPage : UserControl
 
     private async void RenderProfile(string url)
     {
-        if (_feed is null || !_feed.State.People.TryGetValue(url, out var person))
-        {
-            // Not a profile yet (e.g. a noise post): make one from this author's posts.
-            var first = _feed?.State.Posts.Values.FirstOrDefault(p => p.AuthorUrl == url);
-            if (first is null) return;
-            _feed!.State.People[url] = person = new LiPerson { Url = url, Name = first.Author, Headline = first.Headline };
-            foreach (var p in _feed.State.Posts.Values.Where(p => p.AuthorUrl == url).OrderByDescending(p => p.FirstSeen)) person.PostIds.Add(p.Id);
-        }
+        if (_feed is null || !_feed.EnsurePerson(url) || !_feed.State.People.TryGetValue(url, out var person)) return;
         SidePanel.Children.Clear();
         var back = new Button { Content = "← Digest", FontSize = Font("FontCaption"), Padding = new Thickness(12, 6, 12, 6) };
         back.Click += (_, _) => { _profileUrl = null; RenderDigest(); };
