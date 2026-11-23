@@ -88,6 +88,8 @@ await using var client = new CopilotClient(new CopilotClientOptions
 {
     Mode = CopilotClientMode.Empty,
     Runtime = RuntimeConnection.ForInProcess(stateDir),
+    // Never pick up the user's GitHub sign-in (gh CLI hosts.yml etc.). Inference is BYOK to Foundry only.
+    GitHub = new ClientGitHubOptions { UseLoggedInUser = false },
 });
 await client.StartAsync();
 
@@ -114,6 +116,11 @@ var weatherTool = CopilotTool.DefineTool(
 await using var session = await client.CreateSessionAsync(new CreateSessionOptions
 {
     Model = model,
+    // Stay inside our own folder: no git repo discovery, no config/instruction files from elsewhere.
+    WorkingDirectory = stateDir,
+    EnableConfigDiscovery = false,
+    Git = new SessionGitOptions { EnableHostGitOperations = false },
+    Instructions = new CreateSessionInstructionOptions { SkipCustomInstructions = true },
     // Don't use GitHub Copilot inference; everything goes to our Foundry deployment.
     GitHub = new SessionGitHubOptions { Capi = new CapiSessionOptions { Enabled = false } },
     Inference = new SessionInferenceOptions

@@ -17,6 +17,7 @@
     "transcribeModel": "mai-transcribe-2-streaming",
     "voice": "en-US-Harper:MAI-Voice-2.1-Flash",
     "microphone": null,            // part of the mic name, e.g. "RODECaster Duo Main"; null = Windows default
+    "sandbox": true,               // run the agent in the MXC sandbox; false = development only, full access
     "agentPath": null              // null = use the dev build of src/SideCarAgent
   },
   "weather": {

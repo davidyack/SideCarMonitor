@@ -16,4 +16,11 @@
 - Settings and credentials are in `%APPDATA%\SideCarMonitor\settings.json`, never in the repo.
 - Home screen of Windows Phone-style tiles: Cameras (Reolink Home Hub, live RTSP via LibVLC plus motion/AI polling), Activity, Weather (Tempest local UDP 50222), Calendar (placeholder), Settings.
 - Build: `dotnet build src/SideCarMonitor/SideCarMonitor.csproj`. The .NET SDK is in `C:\Program Files\dotnet` (may not be on PATH in older shells).
-- In progress, not yet agreed in detail: `src/SideCarAgent`, a long-running agent on the GitHub Copilot SDK, using the Foundry `model-router` deployment, sandboxed with MXC.
+- `src/SideCarAgent`: a Copilot SDK agent that sends model calls to the Foundry `model-router` deployment (BYOK, Entra token supplied by the kiosk). It talks to the kiosk with JSON lines over stdin/stdout. Tools whose data lives in the kiosk (e.g. `get_local_weather`) are answered by the kiosk over that pipe.
+- The kiosk (`Services/AgentHost.cs`) runs the agent in an **MXC ProcessContainer sandbox** (`assistant.sandbox`, default true; never fall back to unsandboxed silently):
+  - files: read-only program folder and .NET runtime; read/write only `%LOCALAPPDATA%\SideCarAgent`
+  - network: direct egress denied; the only route out is `AllowlistProxy` (127.0.0.1), which allows just the Foundry host
+  - UI: clipboard and input injection blocked (basic window-system init must stay allowed or the runtime crashes with 0xC0000142)
+  - `MxcProcess.WaitAsync` drains the output streams, so only call it after stdout ends
+  - policy changes go through Learning Mode evidence and the user's approval
+- Voice assistant: floating mic button → MAI-Transcribe-2-Streaming (listen) → agent → MAI-Voice-2.1-Flash (speak), Azure Speech on the same Foundry resource.

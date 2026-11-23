@@ -191,7 +191,8 @@ public sealed partial class AssistantOverlay : UserControl
     private async Task RespondAsync(string text)
     {
         if (!Ready()) return;
-        var cts = _turnCts ??= new CancellationTokenSource();
+        // Each reply gets its own cancel switch; a just-cancelled listen must not cancel this turn.
+        var cts = _turnCts = new CancellationTokenSource();
         AddLine(fromUser: true, text);
         try
         {
@@ -231,6 +232,7 @@ public sealed partial class AssistantOverlay : UserControl
     private void CancelTurn()
     {
         _turnCts?.Cancel();
+        _turnCts = null;
         _ = _voice?.StopSpeakingAsync();
     }
 

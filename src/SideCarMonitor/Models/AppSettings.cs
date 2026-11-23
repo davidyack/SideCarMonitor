@@ -62,6 +62,12 @@ public sealed class AssistantSettings
     public string Voice { get; set; } = "en-US-Harper:MAI-Voice-2.1-Flash";
     /// <summary>Part of the microphone's name, e.g. "RODECaster Duo Main"; null = Windows default mic.</summary>
     public string? Microphone { get; set; }
+    /// <summary>
+    /// Run the agent inside the MXC ProcessContainer sandbox (default). Set false only for development:
+    /// the agent then runs with your full permissions.
+    /// </summary>
+    public bool Sandbox { get; set; } = true;
+
     /// <summary>Path to SideCarAgent.exe; null = look for the dev build next to this repo.</summary>
     public string? AgentPath { get; set; }
 
