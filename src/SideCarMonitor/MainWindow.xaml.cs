@@ -532,8 +532,72 @@ public sealed partial class MainWindow : Window
         BriefPopup.Visibility = Visibility.Visible;
     }
 
+    private CancellationTokenSource? _briefSpeech;
+    private Windows.Media.Playback.MediaPlayer? _briefPlayer;
+
+    /// <summary>
+    /// Reads the brief aloud in the assistant's MAI voice. The audio is synthesized first and played by our own
+    /// player (not straight to the speaker), so Stop and Dismiss cut it off immediately.
+    /// </summary>
+    private async void BriefPlay_Click(object sender, RoutedEventArgs e)
+    {
+        if (_briefSpeech is not null) { StopBriefSpeech(); return; }
+        if (_voice is null || _shownBrief is null) { BriefPlayText.Text = "No voice"; return; }
+        var cts = _briefSpeech = new CancellationTokenSource();
+        BriefPlayText.Text = "Stop";
+        BriefPlayIcon.Glyph = "\uE71A";
+        try
+        {
+            // Read it as speech: drop the "- " bullets, end each line as a sentence.
+            var spoken = $"{_shownBrief.Title.Replace(" \u00B7 ", ", ")}. " +
+                         string.Join(" ", _shownBrief.Text.Split('\n').Select(l => l.Trim().TrimStart('-', ' ').Trim()).Where(l => l.Length > 0)
+                             .Select(l => l.EndsWith('.') ? l : l + "."));
+            var wav = await _voice.SynthesizeWavAsync(spoken, cts.Token);
+            if (cts.IsCancellationRequested) return;
+            var stream = new Windows.Storage.Streams.InMemoryRandomAccessStream();
+            using (var writer = new Windows.Storage.Streams.DataWriter(stream))
+            {
+                writer.WriteBytes(wav);
+                await writer.StoreAsync();
+                writer.DetachStream();
+            }
+            stream.Seek(0);
+            if (cts.IsCancellationRequested) return;
+            var player = _briefPlayer = new Windows.Media.Playback.MediaPlayer
+            {
+                Source = Windows.Media.Core.MediaSource.CreateFromStream(stream, "audio/wav"),
+            };
+            player.MediaEnded += (_, _) => DispatcherQueue.TryEnqueue(() => { if (_briefPlayer == player) StopBriefSpeech(); });
+            player.Play();
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            BriefText.Text += $"\n\n(Couldn't play: {ex.Message})";
+            StopBriefSpeech();
+        }
+    }
+
+    /// <summary>Stops brief playback right away (Stop, Dismiss, or when it finishes).</summary>
+    private void StopBriefSpeech()
+    {
+        _briefSpeech?.Cancel();
+        _briefSpeech?.Dispose();
+        _briefSpeech = null;
+        if (_briefPlayer is { } player)
+        {
+            _briefPlayer = null;
+            player.Pause();
+            player.Source = null;
+            player.Dispose();
+        }
+        BriefPlayText.Text = "Play";
+        BriefPlayIcon.Glyph = "\uE768";
+    }
+
     private void BriefDismiss_Click(object sender, RoutedEventArgs e)
     {
+        StopBriefSpeech();
         if (_shownBrief is { } b) _briefs?.Dismiss(b);
         BriefPopup.Visibility = Visibility.Collapsed;
     }

@@ -537,6 +537,13 @@
                         <TextBlock x:Name="BriefText" FontSize="{StaticResource FontBody}" TextWrapping="Wrap" LineHeight="40" />
                     </ScrollViewer>
                     <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="{StaticResource Gap}" HorizontalAlignment="Right">
+                        <Button x:Name="BriefPlay" Click="BriefPlay_Click" FontSize="{StaticResource FontBody}" Background="{StaticResource TileCobalt}"
+                                Foreground="White" Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}" CornerRadius="{StaticResource SmallCorner}">
+                            <StackPanel Orientation="Horizontal" Spacing="{StaticResource Gap}">
+                                <FontIcon x:Name="BriefPlayIcon" Glyph="&#xE768;" FontSize="{StaticResource FontIcon}" />
+                                <TextBlock x:Name="BriefPlayText" Text="Play" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
                         <Button x:Name="BriefRemake" Content="Make it now" Click="BriefRemake_Click" FontSize="{StaticResource FontBody}"
                                 Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}" CornerRadius="{StaticResource SmallCorner}" />
                         <Button Content="Dismiss" Click="BriefDismiss_Click" FontSize="{StaticResource FontBody}" Background="{StaticResource TileAmber}"
