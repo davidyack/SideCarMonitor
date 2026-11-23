@@ -87,9 +87,10 @@ public sealed partial class AssistantOverlay : UserControl
         _agent.Message += (id, text) =>
         {
             if (id != _replyId) return;
+            if (string.IsNullOrWhiteSpace(text)) return;
             _replyLine ??= AddLine(fromUser: false, "");
             _replyLine.Text = text; // final text replaces the streamed chunks
-            _replyDone?.TrySetResult(text);
+            // Not done yet: a reply can have several messages around tool calls. Idle ends the turn.
         };
         _agent.ToolStarted += (id, name) =>
         {

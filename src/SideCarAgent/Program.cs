@@ -315,7 +315,7 @@ session.On<SessionEvent>(evt =>
         case AssistantMessageDeltaEvent delta:
             output.Write(new { type = "delta", id = currentId, text = delta.Data.DeltaContent });
             break;
-        case AssistantMessageEvent message when !string.IsNullOrEmpty(message.Data.Content):
+        case AssistantMessageEvent message when !string.IsNullOrWhiteSpace(message.Data.Content):
             output.Write(new { type = "message", id = currentId, text = message.Data.Content, model = message.Data.Model });
             break;
         case ToolExecutionStartEvent tool:

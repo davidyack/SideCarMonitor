@@ -15,6 +15,11 @@ import app.sidecarmonitor.data.WeekPlan
 import app.sidecarmonitor.data.VoicePlayer
 import app.sidecarmonitor.data.VoiceRecorder
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -66,6 +71,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private var replyId: String? = null
     private var replyText = StringBuilder()
     private var replyDone: CompletableDeferred<String>? = null
+
+    // Sentence-by-sentence speech: how much of the reply has been queued for speaking, and the queue.
+    private var spokenUpTo = 0
+    private var sentences: Channel<String>? = null
     private var acceptedId: CompletableDeferred<String>? = null
 
     private val _state = MutableStateFlow(UiState())
@@ -280,21 +289,64 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val context = _state.value.openTask?.row?.let { "[Context: the user is looking at task ${it.id} \"${it.title}\"]\n" } ?: ""
         if (!connection.send(context + text)) throw IllegalStateException("Not connected to the kiosk")
 
-        val reply = withTimeout(180_000) {
-            replyId = acceptedId!!.await()
-            replyDone!!.await()
+        coroutineScope {
+            // Speak while the reply is still streaming: each finished sentence is synthesized by the kiosk
+            // (in parallel, ahead of time) and played in order. Much faster than waiting for the whole reply.
+            val queue = Channel<String>(Channel.UNLIMITED)
+            sentences = queue
+            spokenUpTo = 0
+            val audio = Channel<Deferred<ByteArray>>(Channel.UNLIMITED)
+            val producer = launch {
+                for (s in queue) audio.send(async(Dispatchers.IO) { c.speak(s) })
+                audio.close()
+            }
+            val speaker = launch {
+                var failed: String? = null
+                for (clip in audio) {
+                    try {
+                        val wav = clip.await()
+                        setAssistant(AssistantState.Speaking, "Speaking\u2026")
+                        player.play(wav)
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        failed = e.message // keep going with the next sentence; the text is on screen
+                    }
+                }
+                if (failed != null) setAssistant(AssistantState.Idle, "Couldn't play part of the reply: $failed")
+            }
+
+            withTimeout(180_000) {
+                replyId = acceptedId!!.await()
+                replyDone!!.await()
+            }
+            viewModelScope.launch { refreshOnce() }
+            queueSentences(final = true)
+            queue.close()
+            producer.join()
+            speaker.join()
+            sentences = null
+            if (_state.value.assistant != AssistantState.Idle) setAssistant(AssistantState.Idle, "Tap Talk, or type below")
         }
-        viewModelScope.launch { refreshOnce() }
-        setAssistant(AssistantState.Speaking, "Speaking…")
-        try {
-            player.play(c.speak(reply))
-            setAssistant(AssistantState.Idle, "Tap Talk, or type below")
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            // Show it rather than failing silently: the text reply is still on screen.
-            setAssistant(AssistantState.Idle, "Couldn't play the reply: ${e.message}")
+    }
+
+    /** Queues the newly finished sentences of the streaming reply for speech (all of the rest when [final]). */
+    private fun queueSentences(final: Boolean) {
+        val q = sentences ?: return
+        val text = replyText.toString()
+        if (spokenUpTo > text.length) return
+        var end = spokenUpTo
+        if (final) end = text.length
+        else {
+            for (i in spokenUpTo until text.length - 1) {
+                val ch = text[i]
+                if ((ch == '.' || ch == '!' || ch == '?' || ch == '\n') && text[i + 1].isWhitespace() && i + 1 - spokenUpTo >= 8) end = i + 1
+            }
         }
+        if (end <= spokenUpTo) return
+        val piece = text.substring(spokenUpTo, end).trim()
+        spokenUpTo = end
+        if (piece.any { it.isLetterOrDigit() }) q.trySend(piece)
     }
 
     private fun ensureChat(): SideCarClient.ChatConnection {
@@ -314,11 +366,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             "delta" -> if (e.id == replyId && e.text != null) {
                 replyText.append(e.text)
                 upsertReply(replyText.toString())
+                queueSentences(final = false)
             }
-            "message" -> if (e.id == replyId && e.text != null) {
+            "message" -> if (e.id == replyId && !e.text.isNullOrBlank()) {
+                // A turn can have several messages around tool calls; keep the latest full text.
+                // Only re-sync speech if the full text still starts with what was already spoken.
+                val spokenPrefix = replyText.substring(0, spokenUpTo.coerceAtMost(replyText.length))
                 replyText = StringBuilder(e.text)
+                if (!e.text.startsWith(spokenPrefix)) spokenUpTo = e.text.length // don't repeat or garble
                 upsertReply(e.text)
-                replyDone?.complete(e.text)
             }
             "tool" -> if (e.id == replyId) {
                 setAssistant(AssistantState.Thinking, if (e.name == "get_local_weather") "Checking the weather…" else "Working…")

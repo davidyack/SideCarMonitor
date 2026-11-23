@@ -85,4 +85,7 @@ dependencies {
   implementation(libs.kotlinx.serialization.json)
   implementation(libs.play.services.code.scanner)
   implementation(libs.androidx.compose.material.icons.extended)
+  // Pixel Watch companion: the watch talks to the kiosk through this app over the Wear OS data layer
+  implementation(libs.play.services.wearable)
+  implementation(libs.kotlinx.coroutines.play.services)
 }

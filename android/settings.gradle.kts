@@ -33,3 +33,4 @@ plugins {
 rootProject.name = "SideCar"
 
 include(":app")
+include(":wear")
