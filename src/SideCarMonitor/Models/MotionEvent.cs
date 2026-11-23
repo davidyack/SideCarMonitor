@@ -56,6 +56,17 @@ public sealed class MotionEvent : INotifyPropertyChanged
         OnChanged(nameof(Snapshots));
     }
 
+    private Services.EventVerdict? _verdict;
+    /// <summary>What the decision model made of the picture, or null.</summary>
+    public Services.EventVerdict? Verdict
+    {
+        get => _verdict;
+        set { _verdict = value; OnChanged(); OnChanged(nameof(VerdictText)); }
+    }
+
+    /// <summary>e.g. "Delivery · Look now", or empty before the picture is judged.</summary>
+    public string VerdictText => _verdict?.Summary ?? "";
+
     public string CameraName { get; }
     public int CameraIndex { get; }
     public DateTime Start { get; }

@@ -26,6 +26,7 @@ public sealed partial class MainWindow : Window
     private TaskAssistant? _taskTools;
     private List<CameraConfig> _cameraConfigs = [];
     private VoiceService? _voice;
+    private EventJudge? _judge;
     private CameraTile? _focused;
 
     public MainWindow(AppSettings settings, bool createdNewSettings)
@@ -181,6 +182,27 @@ public sealed partial class MainWindow : Window
             WatchEvent(ev);
             _events.Add(ev);
         }
+        _ = JudgeUnlabeledAsync();
+    }
+
+    /// <summary>Labels saved event pictures that haven't been judged yet (e.g. from before the decision model was set up).</summary>
+    private async Task JudgeUnlabeledAsync()
+    {
+        if (_judge is null) return;
+        foreach (var ev in _events.Where(e => e.Verdict is null && e.Snapshots.Count > 0).Take(10).ToList())
+        {
+            try
+            {
+                var jpeg = await File.ReadAllBytesAsync(EventStore.SnapshotPath(ev.Id, ev.Snapshots[^1])!);
+                ev.Verdict = await _judge.JudgeAsync(jpeg, ev.CameraName, CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[events] judge failed for {ev.Id}: {ex.Message}");
+                await File.AppendAllTextAsync(Path.Combine(EventStore.Directory, "judge.log"), $"{DateTime.Now:s} {ev.Id}: {ex.Message}\n");
+            }
+        }
+        SaveEvents();
     }
 
     private void WatchEvent(MotionEvent ev) => ev.PropertyChanged += (_, e) =>
@@ -213,10 +235,19 @@ public sealed partial class MainWindow : Window
             if (await SnapshotAsync(ev.CameraIndex, cts.Token) is not { Length: > 0 } jpeg) return;
             await EventStore.SaveSnapshotAsync(ev.Id, n, jpeg);
             ev.AddSnapshot(n); // back on the UI thread after the awaits
+            SaveEvents();
+            if (_judge is not null)
+            {
+                // Ask the decision model what's in the picture (the later picture wins).
+                using var judgeCts = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+                ev.Verdict = await _judge.JudgeAsync(jpeg, ev.CameraName, judgeCts.Token) ?? ev.Verdict;
+                SaveEvents();
+            }
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[events] picture failed for {ev.Id}: {ex.Message}");
+            try { File.AppendAllText(Path.Combine(EventStore.Directory, "judge.log"), $"{DateTime.Now:s} {ev.Id}: {ex.Message}\n"); } catch { }
         }
     }
 
@@ -355,6 +386,7 @@ public sealed partial class MainWindow : Window
             new Azure.Identity.InteractiveBrowserCredential());
         _agent = new AgentHost(a, credential, DispatcherQueue);
         _voice = new VoiceService(a, credential);
+        _judge = EventJudge.Create(a, credential);
         _agent.ToolHandler = call => call.Name switch
         {
             "get_local_weather" => Task.FromResult<object?>(LocalWeatherForAgent()),
@@ -557,6 +589,7 @@ public sealed partial class MainWindow : Window
         activity = _events.Take(30).Select(e => new
         {
             id = e.Id, camera = e.CameraName, kind = e.Label, start = e.Start, active = e.IsActive, duration = e.DurationText,
+            ai = e.VerdictText, attention = e.Verdict?.AttentionLabel ?? "",
             snapshots = e.Snapshots.ToArray(),
         }),
     };

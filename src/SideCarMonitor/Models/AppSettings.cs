@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace SideCarMonitor.Models;
@@ -63,6 +63,11 @@ public sealed class AssistantSettings
     public string Voice { get; set; } = "en-US-Harper:MAI-Voice-2.1-Flash";
     /// <summary>Part of the microphone's name, e.g. "RODECaster Duo Main"; null = Windows default mic.</summary>
     public string? Microphone { get; set; }
+
+    /// <summary>Microsoft-Decision deployment that labels camera event pictures; null or empty turns it off.</summary>
+    public string? DecisionDeployment { get; set; } = "decision-dz";
+    /// <summary>Foundry endpoint for the decision model, e.g. https://name.services.ai.azure.com/; null = derived from FoundryBaseUrl.</summary>
+    public string? DecisionEndpoint { get; set; }
     /// <summary>
     /// Run the agent inside the MXC ProcessContainer sandbox (default). Set false only for development:
     /// the agent then runs with your full permissions.

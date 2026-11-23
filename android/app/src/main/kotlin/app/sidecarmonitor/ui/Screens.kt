@@ -246,6 +246,7 @@ fun ActivityScreen(state: UiState, snapshot: suspend (Int) -> ByteArray?, eventS
                     Column(Modifier.weight(1f)) {
                         Text("${a.kind} \u00B7 ${a.camera}", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
                         Text("${eventTime(a.start)} \u00B7 ${a.duration}", color = Color.White.copy(alpha = 0.75f), fontSize = 14.sp)
+                        if (a.ai.isNotBlank()) Text(a.ai, color = Color(0xFF6CB4FF), fontSize = 14.sp)
                     }
                     a.snapshots.lastOrNull()?.let { n ->
                         EventPicture(a.id, n, eventSnapshot, Modifier.width(96.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(4.dp)), ContentScale.Crop)
@@ -296,7 +297,8 @@ private fun ActivityDetail(state: UiState, a: app.sidecarmonitor.data.ActivityIt
                     Modifier.padding(top = 4.dp), color = SideCarColors.Muted, fontSize = 13.sp)
             }
             if (a.snapshots.isEmpty()) item { Text("No picture was saved for this event", color = SideCarColors.Muted, fontSize = 13.sp) }
-            item { DetailRow("What", a.kind) }
+            if (a.ai.isNotBlank()) item { DetailRow("AI says", a.ai) }
+            item { DetailRow("Camera saw", a.kind) }
             item { DetailRow("Camera", a.camera) }
             item { DetailRow("Started", eventTime(a.start)) }
             item { DetailRow("Lasted", a.duration) }

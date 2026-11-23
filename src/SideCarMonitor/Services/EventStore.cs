@@ -35,7 +35,7 @@ public static partial class EventStore
         File.Move(tmp, path, overwrite: true);
     }
 
-    private sealed record Saved(string Id, string Camera, int CameraIndex, DetectionKind Kinds, DateTime Start, DateTime? End);
+    private sealed record Saved(string Id, string Camera, int CameraIndex, DetectionKind Kinds, DateTime Start, DateTime? End, EventVerdict? Verdict = null);
 
     /// <summary>Loads saved events (newest first) whose start is within the retention period.</summary>
     public static List<MotionEvent> Load(TimeSpan retention)
@@ -51,6 +51,7 @@ public static partial class EventStore
                 var ev = new MotionEvent(s.Camera, s.CameraIndex, s.Kinds, s.Start, s.Id);
                 // An event still active when the kiosk closed: we don't know when it ended.
                 ev.End = s.End ?? s.Start;
+                ev.Verdict = s.Verdict;
                 for (var n = 1; n <= 9; n++)
                     if (File.Exists(SnapshotPath(s.Id, n))) ev.AddSnapshot(n);
                 result.Add(ev);
@@ -71,7 +72,7 @@ public static partial class EventStore
         try
         {
             System.IO.Directory.CreateDirectory(Directory);
-            var list = events.Select(e => new Saved(e.Id, e.CameraName, e.CameraIndex, e.Kinds, e.Start, e.End)).ToList();
+            var list = events.Select(e => new Saved(e.Id, e.CameraName, e.CameraIndex, e.Kinds, e.Start, e.End, e.Verdict)).ToList();
             var tmp = IndexPath + ".tmp";
             File.WriteAllText(tmp, JsonSerializer.Serialize(list, Json));
             File.Move(tmp, IndexPath, overwrite: true);

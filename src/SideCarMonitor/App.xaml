@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Application
     x:Class="SideCarMonitor.App"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -13,6 +13,7 @@
             <SolidColorBrush x:Key="PanelBackground" Color="#14181D" />
             <SolidColorBrush x:Key="PanelBorder" Color="#232A31" />
             <SolidColorBrush x:Key="MutedText" Color="#8A96A3" />
+                <SolidColorBrush x:Key="AccentText" Color="#6CB4FF" />
             <SolidColorBrush x:Key="AlertBrush" Color="#FF4D4F" />
             <SolidColorBrush x:Key="OkBrush" Color="#3DD68C" />
 

@@ -123,6 +123,8 @@
                                                 <Run Text="&#x00B7;" />
                                                 <Run Text="{x:Bind DurationText, Mode=OneWay}" />
                                             </TextBlock>
+                                            <TextBlock Text="{x:Bind VerdictText, Mode=OneWay}" FontSize="{StaticResource FontCaption}"
+                                                       Foreground="{StaticResource AccentText}" TextTrimming="CharacterEllipsis" />
                                         </StackPanel>
                                     </Grid>
                                 </DataTemplate>

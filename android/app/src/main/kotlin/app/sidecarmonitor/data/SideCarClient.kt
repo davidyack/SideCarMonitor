@@ -50,6 +50,9 @@ data class ActivityItem(
     val id: String = "",
     /** Pictures the kiosk took when it happened: 1 = start, 2 = when it became a person or vehicle. */
     val snapshots: List<Int> = emptyList(),
+    /** The decision model's label for the picture, e.g. "Delivery · FYI" (empty until judged). */
+    val ai: String = "",
+    val attention: String = "",
 )
 
 /** One message from the agent over the chat WebSocket. */
