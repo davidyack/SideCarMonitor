@@ -1,4 +1,4 @@
-using Microsoft.UI.Xaml;
+﻿using Microsoft.UI.Xaml;
 using SideCarMonitor.Models;
 
 namespace SideCarMonitor;
@@ -61,6 +61,34 @@ public partial class App : Application
                 {
                     File.AppendAllText(log, $"{DateTimeOffset.Now:u} {ex.GetType().Name}: {ex.Message}\n");
                 }
+                Environment.Exit(0);
+            });
+            return;
+        }
+
+        // X sign-in ("--x-login") and a one-off read for checking ("--x-test <out.json>", 20 posts, about $0.10).
+        if (cl.Contains("--x-login", StringComparer.OrdinalIgnoreCase) || cl.Contains("--x-test", StringComparer.OrdinalIgnoreCase) || cl.Contains("--x-following-count", StringComparer.OrdinalIgnoreCase))
+        {
+            _ = Task.Run(async () =>
+            {
+                var log = Path.Combine(Path.GetDirectoryName(TasksPath)!, "x.log");
+                try
+                {
+                    var x = Services.XClient.Create() ?? throw new InvalidOperationException("No x-client-id.txt");
+                    if (cl.Contains("--x-following-count", StringComparer.OrdinalIgnoreCase))
+                        File.AppendAllText(log, $"{DateTimeOffset.Now:u} following count {await x.FollowingCountAsync()}\n");
+                    else if (cl.Contains("--x-login", StringComparer.OrdinalIgnoreCase))
+                        File.AppendAllText(log, $"{DateTimeOffset.Now:u} signed in as {await x.SignInAsync()}\n");
+                    else
+                    {
+                        var posts = await x.TimelineAsync(20);
+                        var outPath = cl.SkipWhile(a => !a.Equals("--x-test", StringComparison.OrdinalIgnoreCase)).Skip(1).FirstOrDefault()
+                                      ?? Path.Combine(Path.GetTempPath(), "x-test.json");
+                        File.WriteAllText(outPath, System.Text.Json.JsonSerializer.Serialize(posts, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+                        File.AppendAllText(log, $"{DateTimeOffset.Now:u} test read {posts.Count} posts\n");
+                    }
+                }
+                catch (Exception ex) { File.AppendAllText(log, $"{DateTimeOffset.Now:u} {ex.GetType().Name}: {ex.Message}\n"); }
                 Environment.Exit(0);
             });
             return;

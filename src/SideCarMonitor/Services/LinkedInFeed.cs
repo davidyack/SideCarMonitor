@@ -298,7 +298,7 @@ public sealed class LinkedInFeed
             Save();
             Progress?.Invoke("Writing the episode\u2026");
             var prompt = "You are a trusted chief of staff giving your executive a spoken briefing on what their LinkedIn network is " +
-                "saying today. The executive builds with Microsoft, Power Platform and AI. Write a 3 to 4 minute briefing (450-600 words). " +
+                "saying today. The executive's interests: " + Interests + ". Write a 3 to 4 minute briefing (450-600 words). " +
                 "Tone: calm, crisp and measured, like a good chief of staff, not a podcaster or influencer: no hype, no exclamation marks, " +
                 "no jokes or filler, no superlatives. Open with one line on the most important thing, then walk through two or three " +
                 "themes. Don't read the posts one by one: synthesize. For each item say who said it, the substance in a sentence or two, " +
@@ -345,6 +345,7 @@ public sealed class LinkedInFeed
 
     /// <summary>Set by the kiosk: Interrupt saves to-dos here.</summary>
     public SideCarTasks.TaskService? Tasks { get; set; }
+    public string Interests { get; set; } = "startups, AI, Microsoft, product management";
 
     /// <summary>
     /// Interrupt: you said something (e.g. "follow up with Jukka on the Dataverse thing") while the episode was at

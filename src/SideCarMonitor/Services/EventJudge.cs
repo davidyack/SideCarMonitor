@@ -192,8 +192,16 @@ public sealed class EventJudge(Uri endpoint, string deployment, TokenCredential 
     /// Probability (0..1) that the user would want to read this LinkedIn post. The user's own recent Noise / Not noise
     /// labels come in the state as examples, which is how the tile learns.
     /// </summary>
-    public async Task<double> LinkedInSignalAsync(JsonObject post, CancellationToken ct = default)
+    public async Task<double> LinkedInSignalAsync(JsonObject post, CancellationToken ct = default) =>
+        await SocialSignalAsync(post, "LinkedIn", ct);
+
+    /// <summary>Same as LinkedInSignalAsync for another network (e.g. "X").</summary>
+    /// <summary>The user's interests (settings: assistant.interests), part of every feed judgment.</summary>
+    public string Interests { get; set; } = "";
+
+    public async Task<double> SocialSignalAsync(JsonObject post, string network, CancellationToken ct = default)
     {
+        if (Interests.Length > 0) post["users_interests"] = Interests;
         var body = new JsonObject
         {
             ["model"] = deployment,
@@ -203,9 +211,10 @@ public sealed class EventJudge(Uri endpoint, string deployment, TokenCredential 
                 ["signal"] = new JsonObject
                 {
                     ["type"] = "noul",
-                    ["instructions"] = "Would the user want to read this LinkedIn post from their feed? Follow users_own_labels most: " +
+                    ["instructions"] = $"Would the user want to read this {network} post from their feed? Follow users_own_labels most: " +
                         "WANTS examples show what they value and NOISE examples what they skip; similar posts or the same authors should be " +
-                        "treated the same way. Without a clear match, substantive posts (real news, product or technical insight, " +
+                        "treated the same way. Then use users_interests: substantive posts on those topics are signal, posts off those topics " +
+                        "(general news, politics, sports, markets chatter, local news) are noise unless their labels say otherwise. Without a clear match, substantive posts (real news, product or technical insight, " +
                         "thoughtful opinions from people in their field) are signal; ads, engagement bait, generic motivation, " +
                         "self-promotion, certification or 'I'm hiring' announcements from strangers, and recycled hype are noise.",
                     ["criteria"] = new JsonObject { ["true"] = "Worth reading", ["false"] = "Noise" },

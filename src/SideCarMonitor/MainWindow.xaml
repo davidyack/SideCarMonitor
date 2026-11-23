@@ -262,6 +262,7 @@
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
             <Grid.RowDefinitions>
                 <RowDefinition Height="*" />
@@ -269,7 +270,7 @@
             </Grid.RowDefinitions>
 
             <!-- Shown when the decision model (or a burst limit) paused Home Assistant control. Only you can resume. -->
-            <Border x:Name="HomePausedBanner" Grid.ColumnSpan="4" Grid.RowSpan="2" Canvas.ZIndex="10" Visibility="Collapsed"
+            <Border x:Name="HomePausedBanner" Grid.ColumnSpan="5" Grid.RowSpan="2" Canvas.ZIndex="10" Visibility="Collapsed"
                     VerticalAlignment="Top" Background="{StaticResource AlertBrush}" Padding="{StaticResource RowPadding}">
                 <Grid ColumnSpacing="{StaticResource Gap}">
                     <Grid.ColumnDefinitions>
@@ -349,6 +350,22 @@
                 </Grid>
             </Button>
 
+            <!-- X (signal from your Following feed, updated when you tap Update) -->
+            <Button x:Name="XTile" Grid.Column="4" Style="{StaticResource MetroTile}"
+                    Background="{StaticResource TileInk}" Padding="{StaticResource TilePadding}"
+                    Click="XTile_Click" AutomationProperties.Name="X">
+                <Grid>
+                    <TextBlock Text="&#x1D54F;" FontSize="{StaticResource FontTileIcon}" HorizontalAlignment="Left" VerticalAlignment="Top" />
+                    <TextBlock x:Name="XTileValue" Text="--" FontSize="{StaticResource FontTileValue}"
+                               HorizontalAlignment="Right" VerticalAlignment="Top" />
+                    <StackPanel VerticalAlignment="Bottom">
+                        <TextBlock x:Name="XTileDetail" Text="Not signed in" FontSize="{StaticResource FontCaption}"
+                                   Opacity="0.85" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="X" FontSize="{StaticResource FontBody}" />
+                    </StackPanel>
+                </Grid>
+            </Button>
+
             <!-- Activity (live) -->
             <Button x:Name="ActivityTile" Grid.Row="1" Style="{StaticResource MetroTile}"
                     Background="{StaticResource TileCrimson}" Padding="{StaticResource TilePadding}"
@@ -384,7 +401,7 @@
             </Button>
 
             <!-- To-do (live) -->
-            <Button x:Name="TasksTile" Grid.Row="1" Grid.Column="2" Style="{StaticResource MetroTile}"
+            <Button x:Name="TasksTile" Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="2" Style="{StaticResource MetroTile}"
                     Background="{StaticResource TileEmerald}" Padding="{StaticResource TilePadding}"
                     Click="TasksTile_Click" AutomationProperties.Name="To-do">
                 <Grid>
@@ -401,7 +418,7 @@
             </Button>
 
             <!-- Settings -->
-            <Button Grid.Row="1" Grid.Column="3" Style="{StaticResource MetroTile}"
+            <Button Grid.Row="1" Grid.Column="4" Style="{StaticResource MetroTile}"
                     Background="{StaticResource TileSteel}" Padding="{StaticResource TilePadding}"
                     AutomationProperties.Name="Settings">
                 <Grid>
@@ -448,6 +465,7 @@
         <controls:ActivityPage x:Name="ActivityView" Visibility="Collapsed" />
         <controls:LinkedInPage x:Name="LinkedInView" Visibility="Collapsed" />
         <controls:CalendarPage x:Name="CalendarView" Visibility="Collapsed" />
+        <controls:XPage x:Name="XView" Visibility="Collapsed" />
 
         <!-- ===================== Pair phone (QR code) ===================== -->
         <Grid x:Name="PairingPage" Visibility="Collapsed" Background="{StaticResource KioskBackground}"

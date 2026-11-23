@@ -31,6 +31,7 @@ public sealed partial class MainWindow : Window
 
     private void HouseTile_Click(object sender, RoutedEventArgs e)
     {
+        XView.Visibility = Visibility.Collapsed;
         CalendarView.Visibility = Visibility.Collapsed;
         LinkedInView.Visibility = Visibility.Collapsed;
         ActivityView.Visibility = Visibility.Collapsed;
@@ -473,6 +474,7 @@ public sealed partial class MainWindow : Window
 
     private void ShowActivity()
     {
+        XView.Visibility = Visibility.Collapsed;
         CalendarView.Visibility = Visibility.Collapsed;
         LinkedInView.Visibility = Visibility.Collapsed;
         HouseView.Visibility = Visibility.Collapsed;
@@ -493,6 +495,7 @@ public sealed partial class MainWindow : Window
 
     private void ClockTile_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
     {
+        XView.Visibility = Visibility.Collapsed;
         HideOverlayPages();
         HomePage.Visibility = Visibility.Collapsed;
         CalendarView.Visibility = Visibility.Visible;
@@ -790,11 +793,31 @@ public sealed partial class MainWindow : Window
         };
     }
 
+    // ---- X tile ----
+    private XFeed? _x;
+
+    private void XTile_Click(object sender, RoutedEventArgs e)
+    {
+        HideOverlayPages();
+        HomePage.Visibility = Visibility.Collapsed;
+        XView.Visibility = Visibility.Visible;
+        XView.Show();
+    }
+
+    private void UpdateXTile()
+    {
+        if (_x is null) { XTileValue.Text = "--"; XTileDetail.Text = "Not signed in"; return; }
+        var signal = _x.Signal.ToList();
+        XTileValue.Text = _x.State.LastUpdate is null ? "--" : signal.Count.ToString();
+        XTileDetail.Text = _x.State.LastUpdate is null ? "Tap, then Update" : string.Join(", ", signal.Select(p => p.Author).Distinct().Take(3));
+    }
+
     // ---- LinkedIn tile ----
     private LinkedInFeed? _linkedIn;
 
     private void LinkedInTile_Click(object sender, RoutedEventArgs e)
     {
+        XView.Visibility = Visibility.Collapsed;
         HideOverlayPages();
         HomePage.Visibility = Visibility.Collapsed;
         LinkedInView.Visibility = Visibility.Visible;
@@ -829,6 +852,7 @@ public sealed partial class MainWindow : Window
         WeatherPage.Visibility = Visibility.Collapsed;
         LinkedInView.Visibility = Visibility.Collapsed;
         CalendarView.Visibility = Visibility.Collapsed;
+        XView.Visibility = Visibility.Collapsed;
     }
     private string _activityFilter = "all";
     private HomeEventStream? _houseEvents;
@@ -986,6 +1010,7 @@ public sealed partial class MainWindow : Window
 
     private void ShowTasks()
     {
+        XView.Visibility = Visibility.Collapsed;
         CalendarView.Visibility = Visibility.Collapsed;
         LinkedInView.Visibility = Visibility.Collapsed;
         ActivityView.Visibility = Visibility.Collapsed;
@@ -998,6 +1023,7 @@ public sealed partial class MainWindow : Window
 
     private void ShowHome()
     {
+        XView.Visibility = Visibility.Collapsed;
         CalendarView.Visibility = Visibility.Collapsed;
         LinkedInView.Visibility = Visibility.Collapsed;
         ActivityView.Visibility = Visibility.Collapsed;
@@ -1009,6 +1035,7 @@ public sealed partial class MainWindow : Window
 
     private void ShowCameras()
     {
+        XView.Visibility = Visibility.Collapsed;
         CalendarView.Visibility = Visibility.Collapsed;
         LinkedInView.Visibility = Visibility.Collapsed;
         ActivityView.Visibility = Visibility.Collapsed;
@@ -1021,6 +1048,7 @@ public sealed partial class MainWindow : Window
 
     private void ShowWeather()
     {
+        XView.Visibility = Visibility.Collapsed;
         CalendarView.Visibility = Visibility.Collapsed;
         LinkedInView.Visibility = Visibility.Collapsed;
         ActivityView.Visibility = Visibility.Collapsed;
@@ -1049,7 +1077,14 @@ public sealed partial class MainWindow : Window
         _agent = new AgentHost(a, credential, DispatcherQueue);
         _voice = new VoiceService(a, credential);
         _judge = EventJudge.Create(a, credential);
-        _linkedIn = new LinkedInFeed(_judge, _agent) { Voice = _voice, Tasks = _taskService };
+        if (_judge is not null) _judge.Interests = a.Interests;
+        _linkedIn = new LinkedInFeed(_judge, _agent) { Voice = _voice, Tasks = _taskService, Interests = a.Interests };
+        if (XClient.Create() is { SignedIn: true } xClient)
+            _x = new XFeed(xClient, _judge, _agent) { Voice = _voice, Tasks = _taskService, Interests = a.Interests };
+        XView.Initialize(_x);
+        XView.HomeRequested += ShowHome;
+        if (_x is not null) _x.Changed += () => DispatcherQueue.TryEnqueue(UpdateXTile);
+        UpdateXTile();
         LinkedInView.Initialize(_linkedIn);
         LinkedInView.HomeRequested += ShowHome;
         _linkedIn.Changed += () => DispatcherQueue.TryEnqueue(UpdateLinkedInTile);

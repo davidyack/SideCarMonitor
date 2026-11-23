@@ -66,6 +66,9 @@ public sealed class AssistantSettings
 
     /// <summary>Microsoft-Decision deployment that labels camera event pictures; null or empty turns it off.</summary>
     public string? DecisionDeployment { get; set; } = "decision-dz";
+    /// <summary>What you care about in your feeds (LinkedIn, X): used to sort Signal from Noise and to frame briefings.</summary>
+    public string Interests { get; set; } = "startups and founders, AI (models, agents, AI products), Microsoft (Power Platform, Copilot, Azure, Dynamics), product management";
+
     /// <summary>Home Assistant base URL; the token is in %APPDATA%\SideCarMonitor\ha-token.txt (no file = off).</summary>
     public string? HomeAssistantUrl { get; set; } = "http://homeassistant.local:8123/";
     /// <summary>Foundry endpoint for the decision model, e.g. https://name.services.ai.azure.com/; null = derived from FoundryBaseUrl.</summary>

@@ -203,7 +203,7 @@ public sealed class TaskAssistant : IDisposable
         // and only on the task under review. Internal end-of-conversation turns can only read.
         var isReview = call.Turn.StartsWith(ReviewPrefix);
         // Background turns the kiosk starts for other features (e.g. "li-" LinkedIn digests) can only read tasks.
-        var actor = isReview || call.Turn.StartsWith("end-") || call.Turn.StartsWith("li-") || call.Turn.StartsWith("brief-") ? Actor.Assistant : Actor.User;
+        var actor = isReview || call.Turn.StartsWith("end-") || call.Turn.StartsWith("li-") || call.Turn.StartsWith("brief-") || call.Turn.StartsWith("xr-") ? Actor.Assistant : Actor.User;
         _reviewTaskByTurn.TryGetValue(call.Turn, out var reviewTask);
         var readOnly = call.Name is "tasks_list" or "task_get";
         if (actor == Actor.Assistant && !readOnly)
