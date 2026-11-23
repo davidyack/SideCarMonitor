@@ -93,7 +93,7 @@ class MainActivity : ComponentActivity() {
                             Screen.Home -> HomeScreen(state, onOpen = { screen = it }, onTalk = ::talk)
                             Screen.Cameras -> CamerasScreen(state, vm::snapshot) { screen = Screen.Home }
                             Screen.Weather -> WeatherScreen(state) { screen = Screen.Home }
-                            Screen.Activity -> ActivityScreen(state) { screen = Screen.Home }
+                            Screen.Activity -> ActivityScreen(state, vm::snapshot) { screen = Screen.Home }
                             Screen.Tasks ->
                                 if (state.openTask != null) TaskDetailScreen(state, vm::taskAction) { vm.closeTask() }
                                 else TasksScreen(state, onOpen = vm::openTask, onAdd = vm::addTask,
