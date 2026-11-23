@@ -5,6 +5,7 @@
 //   host -> agent : {"type":"token","value":"<entra access token>"}
 //                   {"type":"chat","id":"c1","text":"hello"}
 //                   {"type":"tool_result","id":"t1","result":{...}}
+//                   {"type":"end_conversation"}   (panel closed: save episodic/semantic memory, clear working memory)
 //                   {"type":"shutdown"}
 //   agent -> host : {"type":"ready"} {"type":"delta","id","text"} {"type":"message","id","text","model"}
 //                   {"type":"idle","id"} {"type":"error","id","message"}
@@ -31,7 +32,7 @@ var model = Environment.GetEnvironmentVariable("SIDECAR_MODEL") ?? "model-router
 var output = new ProtocolWriter(Console.OpenStandardOutput());
 string? token = null;
 var tokenReady = new TaskCompletionSource();
-var chats = Channel.CreateUnbounded<(string Id, string Text)>();
+var chats = Channel.CreateUnbounded<(string Id, string Text, bool Internal)>();
 var pendingTools = new ConcurrentDictionary<string, TaskCompletionSource<string>>();
 
 // ---- Read host messages -------------------------------------------------------------
@@ -51,7 +52,10 @@ var reader = Task.Run(async () =>
                     tokenReady.TrySetResult();
                     break;
                 case "chat":
-                    await chats.Writer.WriteAsync(((string?)msg!["id"] ?? Guid.NewGuid().ToString("N"), (string?)msg["text"] ?? ""));
+                    await chats.Writer.WriteAsync(((string?)msg!["id"] ?? Guid.NewGuid().ToString("N"), (string?)msg["text"] ?? "", false));
+                    break;
+                case "end_conversation":
+                    await chats.Writer.WriteAsync(("end-" + Guid.NewGuid().ToString("N")[..6], EndOfConversationPrompt, true));
                     break;
                 case "tool_result":
                     if (pendingTools.TryRemove((string?)msg!["id"] ?? "", out var waiter))
@@ -112,6 +116,64 @@ var weatherTool = CopilotTool.DefineTool(
     new CopilotToolOptions { SkipPermission = true, Idempotent = true },
     new AIFunctionFactoryOptions { Name = "get_local_weather" });
 
+// ---- Memory (working / episodic / semantic) and skills (procedural) ---------------------
+var memory = new MemoryStore(stateDir);
+var skills = new SkillStore(stateDir);
+var noPermission = new CopilotToolOptions { SkipPermission = true };
+
+AIFunction Tool(string name, Delegate fn) =>
+    CopilotTool.DefineTool(fn, noPermission, new AIFunctionFactoryOptions { Name = name });
+
+var memoryTools = new[]
+{
+    Tool("get_working_memory",
+        [Description("Working memory: your notes for the task in progress in this conversation.")]
+        () => memory.GetWorking() is { Length: > 0 } w ? w : "(empty)"),
+    Tool("set_working_memory",
+        [Description("Replace your working-memory notes for the current task (steps done, what is next, details to keep in mind). Cleared when the conversation ends.")]
+        ([Description("The full notes to keep")] string notes) => { memory.SetWorking(notes); return "saved"; }),
+    Tool("recall",
+        [Description("Search long-term memory: facts you know about the user and home, and summaries of past conversations. Use for questions like what did I ask yesterday, preferences, past decisions.")]
+        ([Description("Keywords to search for")] string query,
+         [Description("Only include conversations from the last N days (optional)")] int? days = null) => memory.Recall(query, days)),
+    Tool("remember_fact",
+        [Description("Save a lasting fact about the user, their home, devices or preferences (semantic memory). Pass replaceId to update an existing fact instead of adding a duplicate.")]
+        ([Description("The fact, as a short standalone sentence")] string fact,
+         [Description("Category such as preference, person, home, device, routine")] string category = "general",
+         [Description("Id of an existing fact to replace (optional)")] string? replaceId = null) => memory.Remember(fact, category, replaceId)),
+    Tool("forget_fact",
+        [Description("Delete a fact from semantic memory by id (when it is wrong or the user asks you to forget it).")]
+        ([Description("The fact id, like f1a2b3")] string id) => memory.Forget(id) ? "forgotten" : "no such fact"),
+    Tool("record_episode",
+        [Description("Add a one-sentence summary of this conversation or a notable event to episodic memory.")]
+        ([Description("What happened, in one sentence")] string summary) => { memory.RecordEpisode(summary); return "recorded"; }),
+    Tool("list_skills",
+        [Description("List your saved skills (procedural memory).")]
+        () => skills.List().Select(k => new { k.Name, k.Description, hasScript = k.Script is not null }).ToList()),
+    Tool("read_skill",
+        [Description("Read a skill's full instructions before following it.")]
+        ([Description("Skill name")] string name) => skills.Load(name) is { } k
+            ? (object)new { k.Name, k.Description, k.Script, k.Instructions }
+            : new { error = $"No skill named '{name}'." }),
+    Tool("create_skill",
+        [Description("Save a reusable skill (procedural memory) for a repetitive task or something the user asked you to remember how to do. Only create one after the user agrees. Re-using a name updates that skill.")]
+        ([Description("Short kebab-case name, e.g. morning-briefing")] string name,
+         [Description("When to use this skill, one sentence")] string description,
+         [Description("Step-by-step instructions for future you, including which tools to call")] string instructions,
+         [Description("Optional script the skill runs (PowerShell or Python). It runs in your sandbox: no network, files only under your own folder.")] string? script = null,
+         [Description("Script language: powershell or python")] string? scriptLanguage = null) =>
+        {
+            var k = skills.Save(name, description, instructions, script, scriptLanguage);
+            return new { saved = k.Name, k.Script };
+        }),
+    Tool("run_skill",
+        [Description("Run a skill's script and get its output. Read the skill first.")]
+        async ([Description("Skill name")] string name,
+               [Description("Arguments for the script (optional)")] string? args = null) => await skills.RunScriptAsync(name, args)),
+};
+string[] memoryToolNames = ["get_working_memory", "set_working_memory", "recall", "remember_fact", "forget_fact",
+                            "record_episode", "list_skills", "read_skill", "create_skill", "run_skill"];
+
 #pragma warning disable MCPSDK001 // Named BYOK providers are experimental in the SDK.
 await using var session = await client.CreateSessionAsync(new CreateSessionOptions
 {
@@ -147,10 +209,25 @@ await using var session = await client.CreateSessionAsync(new CreateSessionOptio
             Your replies are also read aloud, so keep them short and natural to hear: a few sentences, no tables.
             For questions about the weather at home (outside, temperature, wind, rain), call get_local_weather
             and answer from it. It's the user's own weather station, so prefer it over general knowledge.
-            """,
+
+            Memory: you have four kinds; use them naturally without announcing it.
+            - Working memory (get/set_working_memory): notes for a multi-step task in progress.
+            - Episodic memory (recall, record_episode): what happened in past conversations.
+            - Semantic memory (remember_fact, forget_fact, recall): lasting facts about the user, home and preferences.
+              When the user tells you something worth keeping (a preference, a name, a routine), save it.
+            - Procedural memory (skills: list_skills, read_skill, run_skill, create_skill): reusable how-tos.
+              If a request matches a saved skill, read it and follow it.
+              If the user asks you to remember how to do something, or your episodic memory shows they have asked
+              for the same kind of thing before, OFFER to save it as a skill ("Want me to save that as a skill?").
+              Only call create_skill after they agree. Skills can include a PowerShell or Python script.
+            """ + "\n\n" + memory.Digest() + "\n\n" + skills.Catalog(),
     },
     // Only our own host-answered tools. No built-in tools (shell, files) until we decide on them together.
-    Tools = new SessionToolOptions { AvailableTools = ["get_local_weather"], Definitions = [weatherTool] },
+    Tools = new SessionToolOptions
+    {
+        AvailableTools = ["get_local_weather", .. memoryToolNames],
+        Definitions = [weatherTool, .. memoryTools],
+    },
     Permissions = new SessionPermissionOptions
     {
         OnRequest = (_, _) => Task.FromResult(PermissionDecision.Reject("Tools are not enabled for this agent yet.")),
@@ -187,8 +264,16 @@ session.On<SessionEvent>(evt =>
 output.Write(new { type = "ready", model });
 
 // ---- Chat loop: one turn at a time -------------------------------------------------------
-await foreach (var (id, text) in chats.Reader.ReadAllAsync())
+var newConversation = false; // the system prompt already carries the memory digest for the first conversation
+await foreach (var (id, rawText, isInternal) in chats.Reader.ReadAllAsync())
 {
+    var text = rawText;
+    if (!isInternal && newConversation)
+    {
+        // A new conversation after an earlier one ended: refresh what you remember and which skills exist.
+        text = $"[New conversation. Memory refresh]\n{memory.Digest()}\n{skills.Catalog()}\n[User says]\n{rawText}";
+        newConversation = false;
+    }
     currentId = id;
     turnDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
     try
@@ -205,6 +290,11 @@ await foreach (var (id, text) in chats.Reader.ReadAllAsync())
         output.Write(new { type = "error", id, message = ex.Message });
     }
     output.Write(new { type = "idle", id });
+    if (isInternal)
+    {
+        memory.ClearWorking();
+        newConversation = true;
+    }
 }
 
 await reader;
@@ -223,4 +313,15 @@ sealed class ProtocolWriter(Stream stream)
         var json = JsonSerializer.Serialize(message);
         lock (_gate) _writer.WriteLine(json);
     }
+}
+
+partial class Program
+{
+    const string EndOfConversationPrompt = """
+        [System note, not from the user] The user closed the assistant panel, so this conversation is over.
+        1. If anything meaningful happened, call record_episode with a one-sentence summary.
+        2. If you learned lasting facts or preferences that you have not saved yet, call remember_fact.
+        3. If the user has now asked for the same kind of task several times (check recall), plan to offer a skill next time.
+        Do not write a reply to the user; just use the tools, then answer with "done".
+        """;
 }

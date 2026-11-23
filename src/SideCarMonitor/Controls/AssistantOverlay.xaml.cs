@@ -121,6 +121,8 @@ public sealed partial class AssistantOverlay : UserControl
     private void ClosePanel()
     {
         CancelTurn();
+        // Let the agent wrap up: save a summary and any new facts, clear its working memory.
+        if (_lines.Count > 0 && _agent is not null) _ = _agent.EndConversationAsync();
         Backdrop.Visibility = Visibility.Collapsed;
         Panel.Visibility = Visibility.Collapsed;
         MicButton.Visibility = Visibility.Visible;

@@ -102,7 +102,15 @@ public sealed class AgentHost : IAsyncDisposable
         ["SIDECAR_FOUNDRY_BASEURL"] = _settings.FoundryBaseUrl!,
         ["SIDECAR_MODEL"] = _settings.Model,
         ["SIDECAR_STATE_DIR"] = StateDirectory,
+        ["SIDECAR_PYTHON"] = FindPython() ?? "",
     };
+
+    /// <summary>python.exe from PATH, so Python skills can run (the sandbox gets read-only access to its folder).</summary>
+    private static string? FindPython() =>
+        (Environment.GetEnvironmentVariable("PATH") ?? "")
+            .Split(';', StringSplitOptions.RemoveEmptyEntries)
+            .Select(d => Path.Combine(d.Trim(), "python.exe"))
+            .FirstOrDefault(p => File.Exists(p) && !p.Contains("WindowsApps", StringComparison.OrdinalIgnoreCase));
 
     private async Task<AgentProcess> StartSandboxedAsync(string exe, CancellationToken ct)
     {
@@ -128,7 +136,7 @@ public sealed class AgentHost : IAsyncDisposable
             Environment = env,
             Filesystem = new FilesystemPolicy
             {
-                ReadonlyPaths = [Path.GetDirectoryName(exe)!, DotnetRoot()],
+                ReadonlyPaths = [Path.GetDirectoryName(exe)!, DotnetRoot(), .. PythonFolder()],
                 ReadwritePaths = [StateDirectory],
             },
             Network = new NetworkPolicy
@@ -170,12 +178,22 @@ public sealed class AgentHost : IAsyncDisposable
             async () => { await p.WaitForExitAsync(); return p.ExitCode; }, () => p.Kill(entireProcessTree: true), p);
     }
 
+    private static string[] PythonFolder() =>
+        FindPython() is { } py ? [Path.GetDirectoryName(py)!] : [];
+
     private static string DotnetRoot() =>
         Environment.GetEnvironmentVariable("DOTNET_ROOT") is { Length: > 0 } root
             ? root
             : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet");
 
     // ---- Protocol -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Tells the agent the conversation is over (panel closed) so it can save episodic and semantic memory
+    /// and clear its working memory. Does nothing if the agent isn't running.
+    /// </summary>
+    public Task EndConversationAsync() =>
+        IsRunning ? WriteAsync(new { type = "end_conversation" }, CancellationToken.None) : Task.CompletedTask;
 
     /// <summary>Sends a chat message; replies arrive through the Delta/Message/Idle events with the returned id.</summary>
     public async Task<string> SendChatAsync(string text, CancellationToken ct = default)
