@@ -5,7 +5,9 @@
 - **Propose before building.** For anything beyond a small, clearly requested change, describe the plan in a few lines and wait for agreement before writing code, installing things, or creating resources.
 - **Check in at each milestone.** Don't chain several big steps (new projects, new packages, cloud resources, architecture changes) in one go. Finish one, show it, and ask before starting the next.
 - **Surface decisions instead of making them silently.** When there's a real choice (technology, design, trade-offs, or limits discovered along the way), lay out the options with a recommendation and let the user pick.
+- **Talk it through in chat.** Never use pop-up question dialogs or multiple-choice prompts. Ask in plain conversation and give your recommendation.
 - **Ask before anything that costs money or touches shared or external systems:** Azure resources, role assignments, system installs.
+- **Commit and push checkpoints** at good milestones, when things build and work. Suggest the checkpoint, then commit and push to `origin/main`. Never commit secrets: settings live in `%APPDATA%`.
 - **Keep updates short and plain** so it's always clear what was done and what's next.
 
 ## Project
