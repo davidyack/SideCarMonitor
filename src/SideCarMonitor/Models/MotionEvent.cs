@@ -31,6 +31,44 @@ public sealed class MotionEvent : INotifyPropertyChanged
     /// <summary>Stable id, also the file name prefix of the event's pictures (see EventStore).</summary>
     public string Id { get; }
 
+    /// <summary>
+    /// A house event (door, lock, garage, alarm, automation, SideCar's own action): instant, no pictures.
+    /// <paramref name="where"/> is the device or room; <paramref name="what"/> the label, e.g. "Door opened".
+    /// </summary>
+    public static MotionEvent House(string source, string where, string what, string glyph, DateTime at, string? detail = null, bool alert = false)
+    {
+        var ev = new MotionEvent(where, -1, DetectionKind.None, at, $"{at:yyyyMMdd-HHmmss}-h{Math.Abs((where + what).GetHashCode()) % 1000}")
+        {
+            Source = source, _customLabel = what, _customGlyph = glyph, _detail = detail ?? "", _alert = alert,
+        };
+        ev.End = at;
+        return ev;
+    }
+
+    /// <summary>"camera", "door" (doors, locks, garage, alarms), "house" (automations, other devices) or "sidecar".</summary>
+    public string Source { get; init; } = "camera";
+    public bool IsCamera => Source == "camera";
+
+    private string? _customLabel;
+    private string? _customGlyph;
+    private string _detail = "";
+    private bool _alert;
+
+    /// <summary>Set for house events: who did it, or why it matters.</summary>
+    public string Detail { get => _detail; set { _detail = value; OnChanged(); OnChanged(nameof(VerdictText)); } }
+
+    /// <summary>A house event worth a look (e.g. the decision model flagged a door opening at 3 AM).</summary>
+    public bool Alert { get => _alert || (_verdict?.Alert ?? false); set { _alert = value; OnChanged(); OnChanged(nameof(VerdictText)); } }
+
+    /// <summary>Restores a saved house event's label and icon.</summary>
+    public void RestoreHouse(string? label, string? glyph, string? detail, bool alert)
+    {
+        _customLabel = label; _customGlyph = glyph; _detail = detail ?? ""; _alert = alert;
+    }
+
+    public string? CustomLabel => _customLabel;
+    public string? CustomGlyph => _customGlyph;
+
     private readonly List<int> _snapshots = [];
     /// <summary>Pictures saved for this event: 1 = when it started, 2 = when it became a person or vehicle.</summary>
     public IReadOnlyList<int> Snapshots => _snapshots;
@@ -65,7 +103,7 @@ public sealed class MotionEvent : INotifyPropertyChanged
     }
 
     /// <summary>e.g. "Delivery · Look now", or empty before the picture is judged.</summary>
-    public string VerdictText => _verdict?.Summary ?? "";
+    public string VerdictText => _verdict?.Summary ?? (_alert && _detail.Length > 0 ? $"Look now \u00B7 {_detail}" : _detail);
 
     public string CameraName { get; }
     public int CameraIndex { get; }
@@ -96,7 +134,7 @@ public sealed class MotionEvent : INotifyPropertyChanged
         private set { if (_durationText != value) { _durationText = value; OnChanged(); } }
     }
 
-    public string Label => PrimaryKind(Kinds) switch
+    public string Label => _customLabel ?? PrimaryKind(Kinds) switch
     {
         DetectionKind.Person => "Person",
         DetectionKind.Vehicle => "Vehicle",
@@ -105,7 +143,7 @@ public sealed class MotionEvent : INotifyPropertyChanged
     };
 
     // Segoe Fluent Icons glyphs
-    public string Glyph => PrimaryKind(Kinds) switch
+    public string Glyph => _customGlyph ?? PrimaryKind(Kinds) switch
     {
         DetectionKind.Person => "",
         DetectionKind.Vehicle => "",
@@ -122,6 +160,7 @@ public sealed class MotionEvent : INotifyPropertyChanged
     /// <summary>Called periodically so active events show a live duration.</summary>
     public void UpdateDuration()
     {
+        if (!IsCamera) { DurationText = Source switch { "door" => "Doors & locks", "sidecar" => "SideCar", _ => "House" }; return; } // instant
         var span = (_end ?? DateTime.Now) - Start;
         var text = span.TotalSeconds < 60 ? $"{(int)span.TotalSeconds}s"
                  : span.TotalMinutes < 60 ? $"{(int)span.TotalMinutes}m {span.Seconds}s"

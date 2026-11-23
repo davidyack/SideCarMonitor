@@ -246,7 +246,7 @@ fun ActivityScreen(state: UiState, snapshot: suspend (Int) -> ByteArray?, eventS
         if (items.isEmpty()) Text("No activity yet", Modifier.padding(16.dp), color = SideCarColors.Muted)
         LazyColumn(Modifier.padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             items(items, key = { it.id.ifBlank { it.start + it.camera } }) { a ->
-                Row(Modifier.fillMaxWidth().background(if (a.active) SideCarColors.Crimson else SideCarColors.Panel)
+                Row(Modifier.fillMaxWidth().background(if (a.active || a.alert) SideCarColors.Crimson else SideCarColors.Panel)
                     .clickable { selected = a }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("${a.kind} \u00B7 ${a.camera}", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
@@ -296,18 +296,18 @@ private fun ActivityDetail(state: UiState, a: app.sidecarmonitor.data.ActivityIt
         PageHeader("${a.kind} \u00B7 ${a.camera}", onBack)
         LazyColumn(Modifier.padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (a.active) item { Text("Happening now", Modifier.fillMaxWidth().background(SideCarColors.Crimson).padding(12.dp), fontSize = 18.sp) }
-            items(a.snapshots) { n ->
+            if (a.source == "camera") items(a.snapshots) { n ->
                 EventPicture(a.id, n, eventSnapshot, pictureModifier)
                 Text(if (n == 1) "When it started" else "When it was seen as a ${a.kind.lowercase()}",
                     Modifier.padding(top = 4.dp), color = SideCarColors.Muted, fontSize = 13.sp)
             }
-            if (a.snapshots.isEmpty()) item { Text("No picture was saved for this event", color = SideCarColors.Muted, fontSize = 13.sp) }
+            if (a.source == "camera" && a.snapshots.isEmpty()) item { Text("No picture was saved for this event", color = SideCarColors.Muted, fontSize = 13.sp) }
             if (a.ai.isNotBlank()) item { DetailRow("AI says", a.ai) }
-            item { DetailRow("Camera saw", a.kind) }
-            item { DetailRow("Camera", a.camera) }
+            item { DetailRow(if (a.source == "camera") "Camera saw" else "What", a.kind) }
+            item { DetailRow(if (a.source == "camera") "Camera" else "Where", a.camera) }
             item { DetailRow("Started", eventTime(a.start)) }
-            item { DetailRow("Lasted", a.duration) }
-            item {
+            if (a.source == "camera") item { DetailRow("Lasted", a.duration) }
+            if (a.source == "camera") item {
                 Box(pictureModifier.background(Color.Black), contentAlignment = Alignment.Center) {
                     live?.let { Image(it, a.camera, Modifier.fillMaxSize(), contentScale = ContentScale.Fit) }
                         ?: Text(if (camera == null) "Camera not found" else "Loading\u2026", color = SideCarColors.Muted)

@@ -42,6 +42,9 @@ public sealed class HomeAssistantBridge : IDisposable
 
     /// <summary>Why home control is paused, or null when it isn't.</summary>
     public string? PausedReason { get; private set; }
+    /// <summary>SideCar (the agent) did or tried something: (device or tool, what, blocked). Background thread.</summary>
+    public event Action<string, string, bool>? AgentActed;
+
     /// <summary>Raised (on a background thread) when home control is paused or resumed.</summary>
     public event Action<string?>? PausedChanged;
 
@@ -174,11 +177,30 @@ public sealed class HomeAssistantBridge : IDisposable
         lock (_lock) _recent.Enqueue((DateTime.Now, what));
         entry["result"] = "done";
         Log(entry);
+        var (w, wt) = Describe(entry);
+        AgentActed?.Invoke(w, wt, false);
         return result;
+    }
+
+    private static (string Where, string What) Describe(JsonObject entry)
+    {
+        var tool = entry["tool"]?.GetValue<string>() ?? "";
+        var name = entry["args"]?["name"]?.GetValue<string>() ?? entry["args"]?["area"]?.GetValue<string>();
+        var what = tool switch
+        {
+            "intent__HassTurnOn" => "Turned on",
+            "intent__HassTurnOff" => "Turned off",
+            "light__HassLightSet" => "Set light",
+            "intent__HassSetPosition" => "Set position",
+            _ when tool.StartsWith("script__") => "Ran script",
+            _ => tool.Split("__").Last(),
+        };
+        return (name ?? (tool.StartsWith("script__") ? tool[8..].Replace('_', ' ') : "House"), what);
     }
 
     private object Blocked(JsonObject entry, string message)
     {
+        if (entry["by"] is null) { var (where, what) = Describe(entry); AgentActed?.Invoke(where, what, true); }
         entry["result"] = "blocked";
         entry["why"] = message;
         Log(entry);

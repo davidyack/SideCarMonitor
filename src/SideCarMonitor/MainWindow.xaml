@@ -81,6 +81,7 @@
                     <Grid RowSpacing="{StaticResource SmallGap}" Padding="0,8,0,0">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
                         <Grid Padding="{StaticResource PanelPadding}">
@@ -89,7 +90,14 @@
                                        FontSize="{StaticResource FontCaption}" FontWeight="SemiBold"
                                        Foreground="{StaticResource AlertBrush}" />
                         </Grid>
-                        <ListView x:Name="EventList" Grid.Row="1" SelectionMode="None" IsItemClickEnabled="True"
+                        <!-- Filter: everything, camera events, doors/locks/garage/alarms, or house (automations, SideCar) -->
+                        <StackPanel x:Name="ActivityFilters" Grid.Row="1" Orientation="Horizontal" Spacing="4" Padding="8,0,8,0">
+                            <Button Tag="all" Content="All" Click="ActivityFilter_Click" FontSize="{StaticResource FontCaption}" MinHeight="{StaticResource ActivityThumbHeight}" />
+                            <Button Tag="camera" Content="Cameras" Click="ActivityFilter_Click" FontSize="{StaticResource FontCaption}" MinHeight="{StaticResource ActivityThumbHeight}" />
+                            <Button Tag="door" Content="Doors" Click="ActivityFilter_Click" FontSize="{StaticResource FontCaption}" MinHeight="{StaticResource ActivityThumbHeight}" />
+                            <Button Tag="house" Content="House" Click="ActivityFilter_Click" FontSize="{StaticResource FontCaption}" MinHeight="{StaticResource ActivityThumbHeight}" />
+                        </StackPanel>
+                        <ListView x:Name="EventList" Grid.Row="2" SelectionMode="None" IsItemClickEnabled="True"
                                   ItemClick="EventList_ItemClick">
                             <ListView.ItemContainerStyle>
                                 <Style TargetType="ListViewItem">
@@ -130,7 +138,7 @@
                                 </DataTemplate>
                             </ListView.ItemTemplate>
                         </ListView>
-                        <TextBlock x:Name="NoEventsText" Grid.Row="1" Text="No activity yet"
+                        <TextBlock x:Name="NoEventsText" Grid.Row="2" Text="No activity yet"
                                    FontSize="{StaticResource FontCaption}"
                                    HorizontalAlignment="Center" VerticalAlignment="Center"
                                    Foreground="{StaticResource MutedText}" />

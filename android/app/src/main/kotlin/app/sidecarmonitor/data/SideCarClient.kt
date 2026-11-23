@@ -53,6 +53,9 @@ data class ActivityItem(
     /** The decision model's label for the picture, e.g. "Delivery · FYI" (empty until judged). */
     val ai: String = "",
     val attention: String = "",
+    /** "camera", "door" (doors, locks, garage, alarms), "house" (automations) or "sidecar" (SideCar's own actions). */
+    val source: String = "camera",
+    val alert: Boolean = false,
 )
 
 @Serializable

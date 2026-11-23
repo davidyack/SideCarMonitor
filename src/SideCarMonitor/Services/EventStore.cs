@@ -17,7 +17,7 @@ public static partial class EventStore
     private static string IndexPath => Path.Combine(Directory, "events.json");
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = false };
 
-    [GeneratedRegex(@"^\d{8}-\d{6}-\d{1,3}$")]
+    [GeneratedRegex(@"^\d{8}-\d{6}-h?\d{1,3}$")]
     private static partial Regex IdPattern();
 
     public static bool IsValidId(string id) => IdPattern().IsMatch(id);
@@ -35,7 +35,8 @@ public static partial class EventStore
         File.Move(tmp, path, overwrite: true);
     }
 
-    private sealed record Saved(string Id, string Camera, int CameraIndex, DetectionKind Kinds, DateTime Start, DateTime? End, EventVerdict? Verdict = null);
+    private sealed record Saved(string Id, string Camera, int CameraIndex, DetectionKind Kinds, DateTime Start, DateTime? End, EventVerdict? Verdict = null,
+        string? Source = null, string? Label = null, string? Glyph = null, string? Detail = null, bool Alert = false);
 
     /// <summary>Loads saved events (newest first) whose start is within the retention period.</summary>
     public static List<MotionEvent> Load(TimeSpan retention)
@@ -48,7 +49,8 @@ public static partial class EventStore
             var cutoff = DateTime.Now - retention;
             foreach (var s in saved.Where(s => s.Start >= cutoff && IsValidId(s.Id)))
             {
-                var ev = new MotionEvent(s.Camera, s.CameraIndex, s.Kinds, s.Start, s.Id);
+                var ev = new MotionEvent(s.Camera, s.CameraIndex, s.Kinds, s.Start, s.Id) { Source = s.Source ?? "camera" };
+                if (!ev.IsCamera) ev.RestoreHouse(s.Label, s.Glyph, s.Detail, s.Alert);
                 // An event still active when the kiosk closed: we don't know when it ended.
                 ev.End = s.End ?? s.Start;
                 ev.Verdict = s.Verdict;
@@ -72,7 +74,8 @@ public static partial class EventStore
         try
         {
             System.IO.Directory.CreateDirectory(Directory);
-            var list = events.Select(e => new Saved(e.Id, e.CameraName, e.CameraIndex, e.Kinds, e.Start, e.End, e.Verdict)).ToList();
+            var list = events.Select(e => new Saved(e.Id, e.CameraName, e.CameraIndex, e.Kinds, e.Start, e.End, e.Verdict,
+                e.Source, e.CustomLabel, e.CustomGlyph, e.IsCamera ? null : e.Detail, !e.IsCamera && e.Alert)).ToList();
             var tmp = IndexPath + ".tmp";
             File.WriteAllText(tmp, JsonSerializer.Serialize(list, Json));
             File.Move(tmp, IndexPath, overwrite: true);

@@ -164,6 +164,30 @@ public sealed class EventJudge(Uri endpoint, string deployment, TokenCredential 
         return Noul(answers?["odd"]);
     }
 
+    /// <summary>Scores how unusual a house event is (0..1), e.g. a door opening at 3 AM or a lock left unlocked overnight.</summary>
+    public async Task<double> OddHouseEventAsync(JsonObject situation, CancellationToken ct = default)
+    {
+        var body = new JsonObject
+        {
+            ["model"] = deployment,
+            ["state"] = situation,
+            ["questions"] = new JsonObject
+            {
+                ["odd"] = new JsonObject
+                {
+                    ["type"] = "noul",
+                    ["instructions"] = "This just happened in the user's home (see event, who and now). Should the homeowner be alerted? " +
+                        "Alert for: doors, gates or the garage opening late at night or very early; locks being unlocked at night " +
+                        "or by an unknown source; alarms, leaks, smoke or tampering; or an unusual pattern in recent_events. " +
+                        "Routine daytime comings and goings, and doors being closed or locked, are normal.",
+                    ["criteria"] = new JsonObject { ["true"] = "Unusual or risky: alert the homeowner", ["false"] = "Routine" },
+                },
+            },
+        };
+        var answers = await PostAsync(body, ct);
+        return Noul(answers?["odd"]);
+    }
+
     /// <summary>Sends one request (one at a time, backing off on 429) and returns the "answers" object.</summary>
     private async Task<JsonNode?> PostAsync(JsonObject body, CancellationToken ct)
     {

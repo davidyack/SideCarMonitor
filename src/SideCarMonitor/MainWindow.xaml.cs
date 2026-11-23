@@ -79,8 +79,10 @@ public sealed partial class MainWindow : Window
         PlaceOnKioskMonitor();
 
         LoadSavedEvents();
-        EventList.ItemsSource = _events;
-        _events.CollectionChanged += (_, _) => UpdateActivitySummary();
+        EventList.ItemsSource = _shownEvents;
+        _events.CollectionChanged += (_, _) => { RebuildShownEvents(); UpdateActivitySummary(); };
+        RebuildShownEvents();
+        StartHouseEvents();
         UpdateActivitySummary();
 
         _clock = DispatcherQueue.CreateTimer();
@@ -306,9 +308,87 @@ public sealed partial class MainWindow : Window
         });
     }
 
+    // ---- Combined feed: house events from Home Assistant and SideCar's own actions ----
+
+    private readonly ObservableCollection<MotionEvent> _shownEvents = [];
+    private string _activityFilter = "all";
+    private HomeEventStream? _houseEvents;
+
+    private void ActivityFilter_Click(object sender, RoutedEventArgs e)
+    {
+        _activityFilter = (string)((Button)sender).Tag;
+        RebuildShownEvents();
+    }
+
+    private bool ShowInFilter(MotionEvent ev) => _activityFilter switch
+    {
+        "camera" => ev.IsCamera,
+        "door" => ev.Source == "door",
+        "house" => ev.Source is "house" or "sidecar",
+        _ => true,
+    };
+
+    private void RebuildShownEvents()
+    {
+        _shownEvents.Clear();
+        foreach (var ev in _events) if (ShowInFilter(ev)) _shownEvents.Add(ev);
+        foreach (var b in ActivityFilters.Children.OfType<Button>())
+            b.Background = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources[
+                (string)b.Tag == _activityFilter ? "TileCobalt" : "PanelBackground"];
+        NoEventsText.Visibility = _shownEvents.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void StartHouseEvents()
+    {
+        _houseEvents = HomeEventStream.Create(_settings.Assistant.HomeAssistantUrl, _settings.Cameras.Select(c => c.Name).ToList());
+        if (_houseEvents is not null)
+        {
+            _houseEvents.Happened += e => DispatcherQueue.TryEnqueue(() => AddHouseEvent(e));
+            _houseEvents.Start();
+        }
+        if (_home is not null)
+            _home.AgentActed += (where, what, blocked) => DispatcherQueue.TryEnqueue(() =>
+                AddFeedEvent(MotionEvent.House("sidecar", where, blocked ? $"SideCar blocked: {what.ToLowerInvariant()}" : $"SideCar: {what.ToLowerInvariant()}",
+                    "\uE99A", DateTime.Now, blocked ? "Paused home control" : null, alert: blocked)));
+    }
+
+    private void AddFeedEvent(MotionEvent ev)
+    {
+        _events.Insert(0, ev);
+        while (_events.Count > Math.Max(10, _settings.MaxEvents)) _events.RemoveAt(_events.Count - 1);
+        SaveEvents();
+    }
+
+    private async void AddHouseEvent(HouseEvent e)
+    {
+        var who = e.Who switch { "device" => "", "automation" => "by an automation", _ => $"by {e.Who}" };
+        var ev = MotionEvent.House(e.Source, e.Where, e.What, e.Glyph, e.At, who, alert: e.Risky && _judge is null);
+        AddFeedEvent(ev);
+        if (e.Source != "door" || _judge is null) return;
+        try
+        {
+            // The decision model decides whether a door, lock, garage or alarm event deserves a "Look now".
+            var recent = new System.Text.Json.Nodes.JsonArray(_events.Where(x => x.Source == "door" && x != ev).Take(8)
+                .Select(x => (System.Text.Json.Nodes.JsonNode)System.Text.Json.Nodes.JsonValue.Create($"{x.Start:ddd h:mm tt} {x.Label}: {x.CameraName}")!).ToArray());
+            var odd = await _judge.OddHouseEventAsync(new System.Text.Json.Nodes.JsonObject
+            {
+                ["now"] = DateTime.Now.ToString("dddd h:mm tt"),
+                ["event"] = $"{e.What}: {e.Where}",
+                ["who"] = e.Who,
+                ["recent_events"] = recent,
+            });
+            if (odd >= 0.6) { ev.Alert = true; SaveEvents(); }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[events] house judge failed: {ex.Message}");
+            if (e.Risky) { ev.Alert = true; SaveEvents(); }
+        }
+    }
+
     private void EventList_ItemClick(object sender, ItemClickEventArgs e)
     {
-        if (e.ClickedItem is MotionEvent ev && ev.CameraIndex < _tiles.Count)
+        if (e.ClickedItem is MotionEvent ev && ev.CameraIndex >= 0 && ev.CameraIndex < _tiles.Count)
         {
             _focused = _tiles[ev.CameraIndex];
             LayoutTiles();
@@ -317,7 +397,7 @@ public sealed partial class MainWindow : Window
 
     private void UpdateActivitySummary()
     {
-        NoEventsText.Visibility = _events.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        NoEventsText.Visibility = _shownEvents.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         var active = _events.Count(e => e.IsActive);
         ActiveCountText.Text = active > 0 ? $"{active} active" : "";
     }
@@ -646,7 +726,7 @@ public sealed partial class MainWindow : Window
         activity = _events.Take(30).Select(e => new
         {
             id = e.Id, camera = e.CameraName, kind = e.Label, start = e.Start, active = e.IsActive, duration = e.DurationText,
-            ai = e.VerdictText, attention = e.Verdict?.AttentionLabel ?? "", alert = e.Verdict?.Alert ?? false,
+            ai = e.VerdictText, attention = e.Verdict?.AttentionLabel ?? (e.Alert ? "Look now" : ""), alert = e.Alert, source = e.Source,
             snapshots = e.Snapshots.ToArray(),
         }),
     };
