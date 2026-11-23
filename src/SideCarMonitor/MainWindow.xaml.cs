@@ -1,4 +1,4 @@
-using System.Runtime.InteropServices.WindowsRuntime;
+﻿using System.Runtime.InteropServices.WindowsRuntime;
 using System.Collections.ObjectModel;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
@@ -39,8 +39,10 @@ public sealed partial class MainWindow : Window
 
         PlaceOnKioskMonitor();
 
+        LoadSavedEvents();
         EventList.ItemsSource = _events;
         _events.CollectionChanged += (_, _) => UpdateActivitySummary();
+        UpdateActivitySummary();
 
         _clock = DispatcherQueue.CreateTimer();
         _clock.Interval = TimeSpan.FromSeconds(1);
@@ -168,15 +170,68 @@ public sealed partial class MainWindow : Window
 
     // ---- Events ---------------------------------------------------------------
 
+    private static readonly TimeSpan EventRetention = TimeSpan.FromDays(7);
+
+    /// <summary>Restores the last week of activity (with its pictures) after a restart.</summary>
+    private void LoadSavedEvents()
+    {
+        EventStore.Prune(EventRetention);
+        foreach (var ev in EventStore.Load(EventRetention).Take(Math.Max(10, _settings.MaxEvents)))
+        {
+            WatchEvent(ev);
+            _events.Add(ev);
+        }
+    }
+
+    private void WatchEvent(MotionEvent ev) => ev.PropertyChanged += (_, e) =>
+    {
+        if (e.PropertyName == nameof(MotionEvent.IsActive)) { UpdateActivitySummary(); SaveEvents(); }
+        // Take a second picture when motion turns out to be a person or vehicle.
+        if (e.PropertyName == nameof(MotionEvent.Label) && ev.Label is "Person" or "Vehicle" && ev.IsActive)
+            CaptureEventPicture(ev, 2);
+    };
+
     private void OnEventStarted(MotionEvent ev)
     {
-        ev.PropertyChanged += (_, e) =>
-        {
-            if (e.PropertyName == nameof(MotionEvent.IsActive)) UpdateActivitySummary();
-        };
+        WatchEvent(ev);
         _events.Insert(0, ev);
         while (_events.Count > Math.Max(10, _settings.MaxEvents))
             _events.RemoveAt(_events.Count - 1);
+        CaptureEventPicture(ev, 1);
+        SaveEvents();
+    }
+
+    private readonly HashSet<string> _capturing = [];
+
+    /// <summary>Grabs a still from the event's camera and saves it with the event (once per picture number).</summary>
+    private async void CaptureEventPicture(MotionEvent ev, int n)
+    {
+        if (!_capturing.Add($"{ev.Id}-{n}") || ev.Snapshots.Contains(n)) return;
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            if (await SnapshotAsync(ev.CameraIndex, cts.Token) is not { Length: > 0 } jpeg) return;
+            await EventStore.SaveSnapshotAsync(ev.Id, n, jpeg);
+            ev.AddSnapshot(n); // back on the UI thread after the awaits
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[events] picture failed for {ev.Id}: {ex.Message}");
+        }
+    }
+
+    private DateTime _lastPrune = DateTime.Now;
+
+    private void SaveEvents()
+    {
+        var snapshot = _events.ToList();
+        var prune = DateTime.Now - _lastPrune > TimeSpan.FromHours(6);
+        if (prune) _lastPrune = DateTime.Now;
+        _ = Task.Run(() =>
+        {
+            EventStore.Save(snapshot);
+            if (prune) EventStore.Prune(EventRetention);
+        });
     }
 
     private void EventList_ItemClick(object sender, ItemClickEventArgs e)
@@ -501,7 +556,8 @@ public sealed partial class MainWindow : Window
         cameras = _cameraConfigs.Select((c, i) => new { index = i, name = c.Name, live = i < _tiles.Count && _tiles[i].IsPlaying }),
         activity = _events.Take(30).Select(e => new
         {
-            camera = e.CameraName, kind = e.Label, start = e.Start, active = e.IsActive, duration = e.DurationText,
+            id = e.Id, camera = e.CameraName, kind = e.Label, start = e.Start, active = e.IsActive, duration = e.DurationText,
+            snapshots = e.Snapshots.ToArray(),
         }),
     };
 

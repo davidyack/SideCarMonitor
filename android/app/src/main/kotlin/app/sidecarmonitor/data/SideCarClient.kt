@@ -47,6 +47,9 @@ data class ActivityItem(
     val start: String,
     val active: Boolean,
     val duration: String,
+    val id: String = "",
+    /** Pictures the kiosk took when it happened: 1 = start, 2 = when it became a person or vehicle. */
+    val snapshots: List<Int> = emptyList(),
 )
 
 /** One message from the agent over the chat WebSocket. */
@@ -99,6 +102,11 @@ class SideCarClient(private val pairing: Pairing) {
 
     suspend fun snapshot(index: Int): ByteArray = withContext(Dispatchers.IO) {
         call(Request.Builder().url("$base/api/cameras/$index/snapshot").build()).use { it.body.bytes() }
+    }
+
+    /** A picture the kiosk took when an activity event happened. */
+    suspend fun eventSnapshot(id: String, n: Int): ByteArray = withContext(Dispatchers.IO) {
+        call(Request.Builder().url("$base/api/events/$id/snapshot/$n").build()).use { it.body.bytes() }
     }
 
     /** Sends a 16 kHz mono WAV recording; returns what was said. */

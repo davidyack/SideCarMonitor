@@ -11,6 +11,8 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -118,7 +120,16 @@ private fun HomeScreen(ui: WatchUi, onTalk: () -> Unit, onToday: () -> Unit, onR
                     label = { Text("To-do · ${h?.todayCount ?: 0} today") },
                     secondaryLabel = { Text(if (needs > 0) "$needs need you" else h?.next?.ifBlank { "Nothing for today" } ?: "", maxLines = 1) })
             }
-            if (!h?.activity.isNullOrBlank()) item { Text("Last: ${h?.activity}", fontSize = 12.sp, color = Tiles.Muted, textAlign = TextAlign.Center) }
+            if (!h?.activity.isNullOrBlank()) item {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Last: ${h?.activity}", fontSize = 12.sp, color = Tiles.Muted, textAlign = TextAlign.Center)
+                    ui.activityPicture?.let {
+                        androidx.compose.foundation.Image(it, h?.activity, Modifier.padding(top = 4.dp).fillMaxWidth(0.85f)
+                            .aspectRatio(16f / 9f).clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp)),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+                    }
+                }
+            }
             when {
                 ui.loading && h == null -> item { CircularProgressIndicator(Modifier.size(32.dp)) }
                 ui.error != null -> {

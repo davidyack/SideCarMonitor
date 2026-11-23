@@ -1,4 +1,4 @@
-using Microsoft.UI.Xaml;
+﻿using Microsoft.UI.Xaml;
 
 namespace SideCarMonitor;
 
@@ -43,6 +43,8 @@ public static class UiScale
         r["SmallCorner"] = new CornerRadius(S(4));
         r["ActivityWidth"] = new GridLength(S(210));
         r["ActivityRowHeight"] = S(52);
+        r["ActivityThumbHeight"] = S(48);
+        r["ActivityThumbWidth"] = S(85);
 
         // Voice assistant: floating mic button and side panel
         r["FabSize"] = S(64);

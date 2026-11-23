@@ -30,6 +30,9 @@ data class WatchHome(
     val next: String = "",
     val today: List<WatchTask> = emptyList(),
     val activity: String = "",
+    val activityId: String = "",
+    /** Which picture of the last event to show (0 = none). */
+    val activityShot: Int = 0,
     val error: String? = null,
 )
 
@@ -50,6 +53,7 @@ class PhoneLink(private val context: Context) {
         const val HOME = "/sidecar/home"
         const val TASK_DONE = "/sidecar/task/done"
         const val ASK = "/sidecar/ask"
+        const val EVENT_PICTURE = "/sidecar/event/picture"
         const val TALK_PREFIX = "/sidecar/talk/"
         const val REPLY_PREFIX = "/sidecar/reply/"
     }
@@ -74,6 +78,15 @@ class PhoneLink(private val context: Context) {
 
     suspend fun markDone(id: String): WatchHome =
         json.decodeFromJsonElement(WatchHome.serializer(), request(TASK_DONE, """{"id":${Json.encodeToString(id)}}"""))
+
+    /** The small picture the kiosk took when an event happened, or null. */
+    suspend fun eventPicture(id: String, n: Int): ByteArray? = withContext(Dispatchers.IO) {
+        val bytes = withTimeout(20_000) {
+            Wearable.getMessageClient(context).sendRequest(phoneNodeId(), EVENT_PICTURE,
+                """{"id":${Json.encodeToString(id)},"n":$n}""".encodeToByteArray()).await()
+        }
+        bytes.takeIf { it.size > 2 && it[0] == 0xFF.toByte() && it[1] == 0xD8.toByte() } // JPEG, not an error
+    }
 
     suspend fun ask(text: String): String =
         request(ASK, """{"text":${Json.encodeToString(text)}}""")["reply"]?.jsonPrimitive?.content ?: ""

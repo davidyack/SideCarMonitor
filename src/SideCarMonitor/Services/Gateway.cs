@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.WebSockets;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
@@ -103,6 +103,12 @@ public sealed class Gateway : IAsyncDisposable
 
         app.MapGet("/api/cameras/{index:int}/snapshot", async (int index, CancellationToken ct) =>
             await _deps.Snapshot(index, ct) is { } jpeg ? Results.File(jpeg, "image/jpeg") : Results.NotFound());
+
+        // Pictures taken when an activity event happened (see EventStore).
+        app.MapGet("/api/events/{id}/snapshot/{n:int}", (string id, int n) =>
+            EventStore.SnapshotPath(id, n) is { } path && File.Exists(path)
+                ? Results.File(File.ReadAllBytes(path), "image/jpeg")
+                : Results.NotFound());
 
         MapTasks(app);
 

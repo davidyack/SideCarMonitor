@@ -227,12 +227,12 @@ private fun WeatherRow(title: String, value: String?, detail: String?) {
 }
 
 @Composable
-fun ActivityScreen(state: UiState, snapshot: suspend (Int) -> ByteArray?, onBack: () -> Unit) {
+fun ActivityScreen(state: UiState, snapshot: suspend (Int) -> ByteArray?, eventSnapshot: suspend (String, Int) -> ByteArray?, onBack: () -> Unit) {
     // Tapping an event opens its details; Back returns to the list.
     var selected by remember { mutableStateOf<app.sidecarmonitor.data.ActivityItem?>(null) }
     selected?.let { a ->
         androidx.activity.compose.BackHandler { selected = null }
-        ActivityDetail(state, a, snapshot) { selected = null }
+        ActivityDetail(state, a, snapshot, eventSnapshot) { selected = null }
         return
     }
     Column(Modifier.fillMaxSize()) {
@@ -240,11 +240,16 @@ fun ActivityScreen(state: UiState, snapshot: suspend (Int) -> ByteArray?, onBack
         val items = state.status?.activity.orEmpty()
         if (items.isEmpty()) Text("No activity yet", Modifier.padding(16.dp), color = SideCarColors.Muted)
         LazyColumn(Modifier.padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            items(items) { a ->
-                Column(Modifier.fillMaxWidth().background(if (a.active) SideCarColors.Crimson else SideCarColors.Panel)
-                    .clickable { selected = a }.padding(12.dp)) {
-                    Text("${a.kind} \u00B7 ${a.camera}", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-                    Text("${eventTime(a.start)} \u00B7 ${a.duration}", color = Color.White.copy(alpha = 0.75f), fontSize = 14.sp)
+            items(items, key = { it.id.ifBlank { it.start + it.camera } }) { a ->
+                Row(Modifier.fillMaxWidth().background(if (a.active) SideCarColors.Crimson else SideCarColors.Panel)
+                    .clickable { selected = a }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("${a.kind} \u00B7 ${a.camera}", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                        Text("${eventTime(a.start)} \u00B7 ${a.duration}", color = Color.White.copy(alpha = 0.75f), fontSize = 14.sp)
+                    }
+                    a.snapshots.lastOrNull()?.let { n ->
+                        EventPicture(a.id, n, eventSnapshot, Modifier.width(96.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(4.dp)), ContentScale.Crop)
+                    }
                 }
             }
         }
@@ -254,33 +259,54 @@ fun ActivityScreen(state: UiState, snapshot: suspend (Int) -> ByteArray?, onBack
 /** "Mon 1:42 PM" from the kiosk's ISO timestamp. */
 private fun eventTime(iso: String): String = runCatching {
     java.time.OffsetDateTime.parse(iso).format(DateTimeFormatter.ofPattern("EEE h:mm a"))
-}.getOrElse { iso.substringAfter('T').take(5) }
+}.getOrElse { runCatching {
+    java.time.LocalDateTime.parse(iso).format(DateTimeFormatter.ofPattern("EEE h:mm a"))
+}.getOrElse { iso.substringAfter('T').take(5) } }
 
 @Composable
-private fun ActivityDetail(state: UiState, a: app.sidecarmonitor.data.ActivityItem, snapshot: suspend (Int) -> ByteArray?, onBack: () -> Unit) {
+private fun EventPicture(id: String, n: Int, eventSnapshot: suspend (String, Int) -> ByteArray?, modifier: Modifier, scale: ContentScale = ContentScale.Fit) {
+    val image by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, id, n) {
+        value = eventSnapshot(id, n)?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }?.asImageBitmap()
+    }
+    Box(modifier.background(Color.Black), contentAlignment = Alignment.Center) {
+        image?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = scale) }
+    }
+}
+
+@Composable
+private fun ActivityDetail(state: UiState, a: app.sidecarmonitor.data.ActivityItem, snapshot: suspend (Int) -> ByteArray?,
+                           eventSnapshot: suspend (String, Int) -> ByteArray?, onBack: () -> Unit) {
     val camera = state.status?.cameras?.firstOrNull { it.name == a.camera }
-    // Live view of that camera, refreshed every 3 seconds (the kiosk doesn't keep event-time pictures yet).
-    val image by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, camera?.index) {
+    // Live view of that camera, refreshed every 3 seconds.
+    val live by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, camera?.index) {
         val index = camera?.index ?: return@produceState
         while (true) {
             snapshot(index)?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }?.let { value = it.asImageBitmap() }
             delay(3000)
         }
     }
+    val pictureModifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(8.dp))
     Column(Modifier.fillMaxSize()) {
         PageHeader("${a.kind} \u00B7 ${a.camera}", onBack)
-        Column(Modifier.padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (a.active) Text("Happening now", Modifier.fillMaxWidth().background(SideCarColors.Crimson).padding(12.dp), fontSize = 18.sp)
-            Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(8.dp)).background(Color.Black),
-                contentAlignment = Alignment.Center) {
-                image?.let { Image(it, a.camera, Modifier.fillMaxSize(), contentScale = ContentScale.Fit) }
-                    ?: Text(if (camera == null) "Camera not found" else "Loading\u2026", color = SideCarColors.Muted)
+        LazyColumn(Modifier.padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (a.active) item { Text("Happening now", Modifier.fillMaxWidth().background(SideCarColors.Crimson).padding(12.dp), fontSize = 18.sp) }
+            items(a.snapshots) { n ->
+                EventPicture(a.id, n, eventSnapshot, pictureModifier)
+                Text(if (n == 1) "When it started" else "When it was seen as a ${a.kind.lowercase()}",
+                    Modifier.padding(top = 4.dp), color = SideCarColors.Muted, fontSize = 13.sp)
             }
-            Text("Live view now, not the moment of the event", color = SideCarColors.Muted, fontSize = 13.sp)
-            DetailRow("What", a.kind)
-            DetailRow("Camera", a.camera)
-            DetailRow("Started", eventTime(a.start))
-            DetailRow("Lasted", a.duration)
+            if (a.snapshots.isEmpty()) item { Text("No picture was saved for this event", color = SideCarColors.Muted, fontSize = 13.sp) }
+            item { DetailRow("What", a.kind) }
+            item { DetailRow("Camera", a.camera) }
+            item { DetailRow("Started", eventTime(a.start)) }
+            item { DetailRow("Lasted", a.duration) }
+            item {
+                Box(pictureModifier.background(Color.Black), contentAlignment = Alignment.Center) {
+                    live?.let { Image(it, a.camera, Modifier.fillMaxSize(), contentScale = ContentScale.Fit) }
+                        ?: Text(if (camera == null) "Camera not found" else "Loading\u2026", color = SideCarColors.Muted)
+                }
+                Text("Live now", Modifier.padding(top = 4.dp, bottom = 16.dp), color = SideCarColors.Muted, fontSize = 13.sp)
+            }
         }
     }
 }

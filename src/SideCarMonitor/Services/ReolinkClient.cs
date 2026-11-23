@@ -1,4 +1,4 @@
-using System.Net.Http.Json;
+﻿using System.Net.Http.Json;
 using System.Text.Json;
 using SideCarMonitor.Models;
 
@@ -22,7 +22,7 @@ public sealed class ReolinkClient : IDisposable
             // Reolink devices ship with self-signed certificates.
             ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator,
         };
-        _http = new HttpClient(handler) { BaseAddress = camera.GetApiBaseUri(), Timeout = TimeSpan.FromSeconds(5) };
+        _http = new HttpClient(handler) { BaseAddress = camera.GetApiBaseUri(), Timeout = TimeSpan.FromSeconds(30) };
     }
 
     /// <summary>Returns the current detection flags (motion plus AI person/vehicle/animal when supported).</summary>
@@ -36,7 +36,10 @@ public sealed class ReolinkClient : IDisposable
             commands.Add(new { cmd = "GetAiState", action = 0, param = new { channel = _camera.Channel } });
 
         var url = $"cgi-bin/api.cgi?user={Uri.EscapeDataString(_camera.Username)}&password={Uri.EscapeDataString(_camera.Password)}";
-        using var response = await _http.PostAsJsonAsync(url, commands, ct);
+        // State polls should be quick; stills get the full 30 s because battery cameras take ~10 s to wake.
+        using var quick = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        quick.CancelAfter(TimeSpan.FromSeconds(5));
+        using var response = await _http.PostAsJsonAsync(url, commands, quick.Token);
         response.EnsureSuccessStatusCode();
 
         using var doc = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ct), cancellationToken: ct);

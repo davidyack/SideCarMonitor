@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Runtime.CompilerServices;
 
 namespace SideCarMonitor.Models;
@@ -19,12 +19,41 @@ public enum DetectionKind
 /// </summary>
 public sealed class MotionEvent : INotifyPropertyChanged
 {
-    public MotionEvent(string cameraName, int cameraIndex, DetectionKind kinds, DateTime start)
+    public MotionEvent(string cameraName, int cameraIndex, DetectionKind kinds, DateTime start, string? id = null)
     {
         CameraName = cameraName;
         CameraIndex = cameraIndex;
         _kinds = kinds;
         Start = start;
+        Id = id ?? $"{start:yyyyMMdd-HHmmss}-{cameraIndex}";
+    }
+
+    /// <summary>Stable id, also the file name prefix of the event's pictures (see EventStore).</summary>
+    public string Id { get; }
+
+    private readonly List<int> _snapshots = [];
+    /// <summary>Pictures saved for this event: 1 = when it started, 2 = when it became a person or vehicle.</summary>
+    public IReadOnlyList<int> Snapshots => _snapshots;
+
+    private Microsoft.UI.Xaml.Media.ImageSource? _thumbnail;
+    /// <summary>The latest picture, for the Activity list. Create on the UI thread.</summary>
+    public Microsoft.UI.Xaml.Media.ImageSource? Thumbnail
+    {
+        get => _thumbnail;
+        private set { _thumbnail = value; OnChanged(); OnChanged(nameof(HasThumbnail)); }
+    }
+
+    public bool HasThumbnail => _thumbnail is not null;
+
+    /// <summary>Records that picture n was saved. Call on the UI thread.</summary>
+    public void AddSnapshot(int n)
+    {
+        if (_snapshots.Contains(n) || Services.EventStore.SnapshotPath(Id, n) is not { } path) return;
+        _snapshots.Add(n);
+        _snapshots.Sort();
+        if (n == _snapshots[^1])
+            Thumbnail = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(path)) { DecodePixelWidth = 320 };
+        OnChanged(nameof(Snapshots));
     }
 
     public string CameraName { get; }

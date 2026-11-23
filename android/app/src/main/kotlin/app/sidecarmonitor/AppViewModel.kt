@@ -144,6 +144,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     suspend fun snapshot(index: Int): ByteArray? = runCatching { client?.snapshot(index) }.getOrNull()
 
+    private val eventPictures = java.util.concurrent.ConcurrentHashMap<String, ByteArray>()
+
+    /** Event pictures never change, so they're cached for the session. */
+    suspend fun eventSnapshot(id: String, n: Int): ByteArray? = eventPictures["$id-$n"]
+        ?: runCatching { client?.eventSnapshot(id, n) }.getOrNull()?.also { eventPictures["$id-$n"] = it }
+
     // ---- To-do list -------------------------------------------------------------------------
 
     fun openTask(id: String) {

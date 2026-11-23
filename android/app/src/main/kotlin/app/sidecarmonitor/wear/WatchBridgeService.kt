@@ -33,6 +33,7 @@ import java.io.DataOutputStream
  *   /sidecar/home        → weather, to-do counts, today's tasks, connection state
  *   /sidecar/task/done   → {"id"} mark done (as you), then the new home
  *   /sidecar/ask         → {"text"} ask SideCar by text, returns {"reply"}
+ *   /sidecar/event/picture → {"id","n"} the event picture as a small JPEG (raw bytes, not JSON)
  * Voice (ChannelClient streams):
  *   watch opens /sidecar/talk/<id> and streams a 16 kHz WAV; the phone has the kiosk transcribe it,
  *   asks the agent, has the kiosk speak the reply in the MAI voice, and streams it back on
@@ -57,6 +58,11 @@ class WatchBridgeService : WearableListenerService() {
                         val id = json.parseToJsonElement(request.decodeToString()).jsonObject["id"]?.jsonPrimitive?.content ?: ""
                         c.taskActionById(id, "done")
                         home(c)
+                    }
+                    WatchPaths.EVENT_PICTURE -> {
+                        val o = json.parseToJsonElement(request.decodeToString()).jsonObject
+                        val jpeg = client().eventSnapshot(o["id"]?.jsonPrimitive?.content ?: "", o["n"]?.jsonPrimitive?.content?.toIntOrNull() ?: 1)
+                        return@async shrink(jpeg, 320) // the data layer caps messages at ~100 KB
                     }
                     WatchPaths.ASK -> {
                         val text = json.parseToJsonElement(request.decodeToString()).jsonObject["text"]?.jsonPrimitive?.content ?: ""
@@ -159,8 +165,17 @@ class WatchBridgeService : WearableListenerService() {
                     })
                 }
             })
-            put("activity", status?.activity?.firstOrNull()?.let { "${it.kind} at ${it.camera}" } ?: "")
+            val last = status?.activity?.firstOrNull()
+            put("activity", last?.let { "${it.kind} at ${it.camera}" } ?: "")
+            put("activityId", last?.id ?: "")
+            put("activityShot", last?.snapshots?.lastOrNull() ?: 0)
         }.toString()
+    }
+
+    private fun shrink(jpeg: ByteArray, width: Int): ByteArray {
+        val src = android.graphics.BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size) ?: return jpeg
+        val scaled = if (src.width <= width) src else android.graphics.Bitmap.createScaledBitmap(src, width, src.height * width / src.width, true)
+        return java.io.ByteArrayOutputStream().also { scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 75, it) }.toByteArray()
     }
 
     override fun onDestroy() {
@@ -174,6 +189,7 @@ object WatchPaths {
     const val HOME = "/sidecar/home"
     const val TASK_DONE = "/sidecar/task/done"
     const val ASK = "/sidecar/ask"
+    const val EVENT_PICTURE = "/sidecar/event/picture"
     const val TALK_PREFIX = "/sidecar/talk/"
     const val REPLY_PREFIX = "/sidecar/reply/"
 }

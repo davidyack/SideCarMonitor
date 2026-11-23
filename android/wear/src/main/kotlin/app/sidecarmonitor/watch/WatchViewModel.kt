@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.wear.tiles.TileService
+import androidx.compose.ui.graphics.asImageBitmap
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,6 +23,8 @@ data class WatchUi(
     val heard: String = "",
     val reply: String = "",
     val level: Float = 0f,
+    /** Picture of the last camera event. */
+    val activityPicture: androidx.compose.ui.graphics.ImageBitmap? = null,
 )
 
 class WatchViewModel(app: Application) : AndroidViewModel(app) {
@@ -41,10 +44,23 @@ class WatchViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val home = link.home()
                 _ui.update { it.copy(home = home, loading = false, error = null) }
+                loadActivityPicture(home)
             } catch (e: Exception) {
                 _ui.update { it.copy(loading = false, error = e.message ?: "Can't reach the phone") }
             }
         }
+    }
+
+    private var pictureFor = ""
+
+    private suspend fun loadActivityPicture(home: WatchHome) {
+        val key = "${home.activityId}-${home.activityShot}"
+        if (home.activityShot == 0) { pictureFor = ""; _ui.update { it.copy(activityPicture = null) }; return }
+        if (key == pictureFor) return
+        val bytes = runCatching { link.eventPicture(home.activityId, home.activityShot) }.getOrNull() ?: return
+        val image = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap() ?: return
+        pictureFor = key
+        _ui.update { it.copy(activityPicture = image) }
     }
 
     fun markDone(id: String) {

@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Window
     x:Class="SideCarMonitor.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -104,7 +104,11 @@
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="Auto" />
                                             <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
+                                        <!-- Picture taken when it happened (latest one) -->
+                                        <Image Grid.Column="2" Source="{x:Bind Thumbnail, Mode=OneWay}" Visibility="{x:Bind HasThumbnail, Mode=OneWay}" Stretch="UniformToFill"
+                                               Height="{StaticResource ActivityThumbHeight}" Width="{StaticResource ActivityThumbWidth}" />
                                         <FontIcon Glyph="{x:Bind Glyph, Mode=OneWay}" FontSize="{StaticResource FontIcon}"
                                                   VerticalAlignment="Center" />
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center">
