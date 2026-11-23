@@ -1,0 +1,36 @@
+{
+  // SideCarMonitor settings. Copied to %APPDATA%\SideCarMonitor\settings.json on first run.
+  "display": {
+    // Index into the list of monitors. Leave null to pick the first non-primary 1920x1080 monitor.
+    "monitorIndex": null,
+    "fullScreen": true,
+    // Multiplier for all text and touch sizes. 2.5 suits a ~7" 1080p touchscreen at 100% Windows scaling.
+    "uiScale": 2.5
+  },
+  "motionPollSeconds": 1.0,
+  "maxEvents": 200,
+  "weather": {
+    // WeatherFlow Tempest: read the hub's local UDP broadcasts (port 50222), no token needed.
+    "tempestEnabled": true,
+    "units": "imperial"
+  },
+  "cameras": [
+    {
+      "name": "Front Door",
+      "host": "",            // camera or NVR IP, e.g. 192.168.1.50
+      "username": "admin",
+      "password": "",
+      // 0-based channel. Standalone cameras use 0; NVRs use one channel per camera.
+      "channel": 0,
+      // "sub" (low-res, best for the grid) or "main"
+      "stream": "sub",
+      "rtspPort": 554,
+      "httpPort": 80,
+      "useHttps": false,
+      // Optional: set a full RTSP URL to override the generated one.
+      "rtspUrl": null,
+      // "always" or "onMotion" (battery cameras: stream only during detections so they can sleep)
+      "liveMode": "always"
+    }
+  ]
+}
