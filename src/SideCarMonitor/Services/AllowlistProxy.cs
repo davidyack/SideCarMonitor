@@ -61,6 +61,8 @@ public sealed class AllowlistProxy : IDisposable
 
             if (!allowed)
             {
+                SystemEvents.Report("Blocked the agent's network request", $"to {(host.Length > 0 ? host : target)} (not on the sandbox allowlist)",
+                    dedupe: TimeSpan.FromMinutes(30));
                 await downstream.WriteAsync(Encoding.ASCII.GetBytes("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n"));
                 return;
             }

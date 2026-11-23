@@ -31,6 +31,7 @@ public sealed partial class MainWindow : Window
 
     private void HouseTile_Click(object sender, RoutedEventArgs e)
     {
+        ActivityView.Visibility = Visibility.Collapsed;
         WeatherPage.Visibility = Visibility.Collapsed;
         HomePage.Visibility = Visibility.Collapsed;
         TasksPageView.Visibility = Visibility.Collapsed;
@@ -78,7 +79,11 @@ public sealed partial class MainWindow : Window
 
         PlaceOnKioskMonitor();
 
+        SystemEvents.Reported += OnSystemEvent;
         LoadSavedEvents();
+        ActivityView.Initialize(_events);
+        ActivityView.HomeRequested += ShowHome;
+        ActivityView.WatchLiveRequested += i => { ActivityView.Visibility = Visibility.Collapsed; ShowCameras(); if (i < _tiles.Count) { _focused = _tiles[i]; LayoutTiles(); } };
         EventList.ItemsSource = _shownEvents;
         _events.CollectionChanged += (_, _) => { RebuildShownEvents(); UpdateActivitySummary(); };
         RebuildShownEvents();
@@ -155,7 +160,13 @@ public sealed partial class MainWindow : Window
 
         _monitor = new MotionMonitor(cameras, TimeSpan.FromSeconds(_settings.MotionPollSeconds), DispatcherQueue);
         _monitor.StateChanged += (i, kinds) => _tiles[i].SetDetection(kinds);
-        _monitor.ApiStatusChanged += (i, err) => _tiles[i].SetApiError(err);
+        _monitor.ApiStatusChanged += (i, err) =>
+        {
+            _tiles[i].SetApiError(err);
+            if (err is not null) SystemEvents.Report($"Camera offline: {cameras[i].Name}", err, dedupe: TimeSpan.FromHours(2));
+            else if (_cameraWasDown.Remove(i)) SystemEvents.Report($"Camera back online: {cameras[i].Name}");
+            if (err is not null) _cameraWasDown.Add(i);
+        };
         _monitor.EventStarted += OnEventStarted;
         _monitor.Start();
     }
@@ -311,6 +322,22 @@ public sealed partial class MainWindow : Window
     // ---- Combined feed: house events from Home Assistant and SideCar's own actions ----
 
     private readonly ObservableCollection<MotionEvent> _shownEvents = [];
+    private readonly HashSet<int> _cameraWasDown = [];
+
+    private void OnSystemEvent(string what, string detail, bool alert) => DispatcherQueue.TryEnqueue(() =>
+        AddFeedEvent(MotionEvent.House("system", "SideCar", what, alert ? "\uE7BA" : "\uE9D9", DateTime.Now, detail, alert)));
+
+    private void ShowActivity()
+    {
+        HouseView.Visibility = Visibility.Collapsed;
+        TasksPageView.Visibility = Visibility.Collapsed;
+        WeatherPage.Visibility = Visibility.Collapsed;
+        HomePage.Visibility = Visibility.Collapsed;
+        ActivityView.Visibility = Visibility.Visible;
+        ActivityView.Show();
+    }
+
+    private void ActivityTile_Click(object sender, RoutedEventArgs e) => ShowActivity();
     private string _activityFilter = "all";
     private HomeEventStream? _houseEvents;
 
@@ -325,6 +352,7 @@ public sealed partial class MainWindow : Window
         "camera" => ev.IsCamera,
         "door" => ev.Source == "door",
         "house" => ev.Source is "house" or "sidecar",
+        "system" => ev.Source is "system" or "sidecar",
         _ => true,
     };
 
@@ -462,6 +490,7 @@ public sealed partial class MainWindow : Window
 
     private void ShowTasks()
     {
+        ActivityView.Visibility = Visibility.Collapsed;
         HouseView.Visibility = Visibility.Collapsed;
         WeatherPage.Visibility = Visibility.Collapsed;
         HomePage.Visibility = Visibility.Collapsed;
@@ -471,6 +500,7 @@ public sealed partial class MainWindow : Window
 
     private void ShowHome()
     {
+        ActivityView.Visibility = Visibility.Collapsed;
         HouseView.Visibility = Visibility.Collapsed;
         TasksPageView.Visibility = Visibility.Collapsed;
         WeatherPage.Visibility = Visibility.Collapsed;
@@ -479,6 +509,7 @@ public sealed partial class MainWindow : Window
 
     private void ShowCameras()
     {
+        ActivityView.Visibility = Visibility.Collapsed;
         HouseView.Visibility = Visibility.Collapsed;
         TasksPageView.Visibility = Visibility.Collapsed;
         WeatherPage.Visibility = Visibility.Collapsed;
@@ -488,6 +519,7 @@ public sealed partial class MainWindow : Window
 
     private void ShowWeather()
     {
+        ActivityView.Visibility = Visibility.Collapsed;
         HouseView.Visibility = Visibility.Collapsed;
         TasksPageView.Visibility = Visibility.Collapsed;
         WeatherPage.Visibility = Visibility.Visible;

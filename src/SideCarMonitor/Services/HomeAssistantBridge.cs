@@ -70,6 +70,7 @@ public sealed class HomeAssistantBridge : IDisposable
         PausedReason = null;
         lock (_lock) _recent.Clear();
         Log(new JsonObject { ["event"] = "resumed", ["by"] = "user" });
+        SystemEvents.Report("Home control resumed", "by you");
         PausedChanged?.Invoke(null);
     }
 
@@ -77,6 +78,7 @@ public sealed class HomeAssistantBridge : IDisposable
     {
         PausedReason = reason;
         Log(new JsonObject { ["event"] = "paused", ["reason"] = reason });
+        SystemEvents.Report("Paused SideCar's home control", reason, alert: true);
         PausedChanged?.Invoke(reason);
     }
 

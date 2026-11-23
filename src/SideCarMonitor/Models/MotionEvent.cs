@@ -160,7 +160,7 @@ public sealed class MotionEvent : INotifyPropertyChanged
     /// <summary>Called periodically so active events show a live duration.</summary>
     public void UpdateDuration()
     {
-        if (!IsCamera) { DurationText = Source switch { "door" => "Doors & locks", "sidecar" => "SideCar", _ => "House" }; return; } // instant
+        if (!IsCamera) { DurationText = Source switch { "door" => "Doors & locks", "sidecar" => "SideCar", "system" => "System", _ => "House" }; return; } // instant
         var span = (_end ?? DateTime.Now) - Start;
         var text = span.TotalSeconds < 60 ? $"{(int)span.TotalSeconds}s"
                  : span.TotalMinutes < 60 ? $"{(int)span.TotalMinutes}m {span.Seconds}s"

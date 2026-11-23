@@ -78,8 +78,12 @@ public sealed class AgentHost : IAsyncDisposable
         _process = _settings.Sandbox ? await StartSandboxedAsync(exe, ct) : StartUnsandboxed(exe);
         IsSandboxed = _settings.Sandbox;
 
+        SystemEvents.Report(_settings.Sandbox ? "Agent started in its sandbox" : "Agent started WITHOUT the sandbox",
+            _settings.Sandbox ? "MXC container: read-only program files, network only to Foundry" : "development mode: full permissions",
+            alert: !_settings.Sandbox);
         _ = _process.Exited.ContinueWith(t =>
         {
+            if (!_stopping) SystemEvents.Report("Agent stopped unexpectedly", $"exit code {t.Result}; it restarts on the next request", alert: true);
             _ready?.TrySetException(new InvalidOperationException($"The agent exited unexpectedly (code {t.Result})."));
             Post(() => Error?.Invoke(null, "The assistant stopped. It will restart on the next request."));
         }, TaskScheduler.Default);
@@ -306,8 +310,11 @@ public sealed class AgentHost : IAsyncDisposable
 
     private void Post(Action action) => _ui.TryEnqueue(() => action());
 
+    private volatile bool _stopping;
+
     public async ValueTask DisposeAsync()
     {
+        _stopping = true;
         _tokenTimer?.Dispose();
         var p = _process;
         _process = null;

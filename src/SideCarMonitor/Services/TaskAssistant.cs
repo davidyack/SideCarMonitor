@@ -209,9 +209,15 @@ public sealed class TaskAssistant : IDisposable
         {
             if (!isReview) return Error("Task changes aren't allowed here.");
             if (call.Name is not ("task_add_note" or "task_save_deliverable" or "task_ask"))
+            {
+                SystemEvents.Report($"Stopped the agent: {call.Name.Replace('_', ' ')}", $"background review of {reviewTask} can only add notes, deliverables or questions");
                 return Error("During a background review you can only add a note, save the deliverable, or ask a question.");
+            }
             if (!string.Equals(S("id"), reviewTask, StringComparison.OrdinalIgnoreCase))
+            {
+                SystemEvents.Report($"Stopped the agent: {call.Name.Replace('_', ' ')} on {S("id")}", $"a review of {reviewTask} can't touch other tasks");
                 return Error($"During this review you can only work on task {reviewTask}.");
+            }
         }
 
         try

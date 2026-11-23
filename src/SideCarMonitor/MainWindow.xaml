@@ -96,6 +96,7 @@
                             <Button Tag="camera" Content="Cameras" Click="ActivityFilter_Click" FontSize="{StaticResource FontCaption}" MinHeight="{StaticResource ActivityThumbHeight}" />
                             <Button Tag="door" Content="Doors" Click="ActivityFilter_Click" FontSize="{StaticResource FontCaption}" MinHeight="{StaticResource ActivityThumbHeight}" />
                             <Button Tag="house" Content="House" Click="ActivityFilter_Click" FontSize="{StaticResource FontCaption}" MinHeight="{StaticResource ActivityThumbHeight}" />
+                            <Button Tag="system" Content="System" Click="ActivityFilter_Click" FontSize="{StaticResource FontCaption}" MinHeight="{StaticResource ActivityThumbHeight}" />
                         </StackPanel>
                         <ListView x:Name="EventList" Grid.Row="2" SelectionMode="None" IsItemClickEnabled="True"
                                   ItemClick="EventList_ItemClick">
@@ -329,7 +330,7 @@
             <!-- Activity (live) -->
             <Button x:Name="ActivityTile" Grid.Row="1" Style="{StaticResource MetroTile}"
                     Background="{StaticResource TileCrimson}" Padding="{StaticResource TilePadding}"
-                    Click="CamerasTile_Click" AutomationProperties.Name="Activity">
+                    Click="ActivityTile_Click" AutomationProperties.Name="Activity">
                 <Grid>
                     <FontIcon Glyph="&#xEA8F;" FontSize="{StaticResource FontTileIcon}"
                               HorizontalAlignment="Left" VerticalAlignment="Top" />
@@ -422,6 +423,7 @@
         <!-- ===================== To-do ===================== -->
         <controls:TasksPage x:Name="TasksPageView" Visibility="Collapsed" />
         <controls:HomeControlPage x:Name="HouseView" Visibility="Collapsed" />
+        <controls:ActivityPage x:Name="ActivityView" Visibility="Collapsed" />
 
         <!-- ===================== Pair phone (QR code) ===================== -->
         <Grid x:Name="PairingPage" Visibility="Collapsed" Background="{StaticResource KioskBackground}"

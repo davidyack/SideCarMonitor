@@ -22,6 +22,7 @@ public sealed class HomeEventStream : IDisposable
     private readonly IReadOnlyCollection<string> _cameraNames;
     private readonly CancellationTokenSource _cts = new();
     private readonly Dictionary<string, string> _users = []; // HA user id -> name
+    private bool _wasDown;
 
     /// <summary>Raised on a background thread.</summary>
     public event Action<HouseEvent>? Happened;
@@ -50,7 +51,12 @@ public sealed class HomeEventStream : IDisposable
         {
             try { await ListenAsync(ct); }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
-            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[ha-events] {ex.Message}; reconnecting"); }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ha-events] {ex.Message}; reconnecting");
+                if (!_wasDown) SystemEvents.Report("Lost connection to Home Assistant", $"{ex.Message}; retrying", alert: true, dedupe: TimeSpan.FromMinutes(30));
+                _wasDown = true;
+            }
             try { await Task.Delay(TimeSpan.FromSeconds(15), ct); } catch (OperationCanceledException) { return; }
         }
     }
@@ -63,6 +69,8 @@ public sealed class HomeEventStream : IDisposable
         await SendAsync(ws, new JsonObject { ["type"] = "auth", ["access_token"] = _token }, ct);
         var auth = await ReceiveAsync(ws, ct);
         if (auth?["type"]?.GetValue<string>() != "auth_ok") throw new InvalidOperationException("Home Assistant rejected the token");
+        if (_wasDown) SystemEvents.Report("Home Assistant connection restored", "live events are flowing again");
+        _wasDown = false;
 
         await SendAsync(ws, new JsonObject { ["id"] = 1, ["type"] = "config/auth/list" }, ct); // to name who did it (admin only)
         await SendAsync(ws, new JsonObject { ["id"] = 2, ["type"] = "subscribe_events", ["event_type"] = "state_changed" }, ct);
