@@ -49,5 +49,6 @@ public static class UiScale
         r["FabCorner"] = new CornerRadius(S(32));
         r["FabMargin"] = new Thickness(0, 0, S(12), S(12));
         r["AssistantWidth"] = S(440);
+        r["QrSize"] = S(300);
     }
 }

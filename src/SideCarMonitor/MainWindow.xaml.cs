@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices.WindowsRuntime;
 using System.Collections.ObjectModel;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
@@ -20,6 +21,8 @@ public sealed partial class MainWindow : Window
     private MotionMonitor? _monitor;
     private TempestListener? _tempest;
     private AgentHost? _agent;
+    private Gateway? _gateway;
+    private List<CameraConfig> _cameraConfigs = [];
     private VoiceService? _voice;
     private CameraTile? _focused;
 
@@ -84,7 +87,7 @@ public sealed partial class MainWindow : Window
 
     private void BuildCameras(bool createdNewSettings)
     {
-        var cameras = _settings.Cameras.Where(c => c.IsConfigured).ToList();
+        var cameras = _cameraConfigs = _settings.Cameras.Where(c => c.IsConfigured).ToList();
         if (cameras.Count == 0)
         {
             EmptyState.Visibility = Visibility.Visible;
@@ -252,6 +255,7 @@ public sealed partial class MainWindow : Window
             _ => new { error = $"Unknown tool '{name}'." },
         };
         Assistant.Initialize(_agent, _voice, null);
+        _ = StartGatewayAsync();
     }
 
     /// <summary>Snapshot of the Tempest readings for the agent's get_local_weather tool.</summary>
@@ -407,6 +411,86 @@ public sealed partial class MainWindow : Window
 
     private void QuitButton_Click(object sender, RoutedEventArgs e) => Close();
 
+    // ---- Phone/watch gateway and pairing ------------------------------------------------------
+
+    private async Task StartGatewayAsync()
+    {
+        if (!_settings.Gateway.Enabled) return;
+        try
+        {
+            _gateway = new Gateway(_settings.Gateway.Port, new Gateway.Dependencies(
+                _agent, _voice, DispatcherQueue, StatusForPhone, SnapshotAsync));
+            await _gateway.StartAsync();
+        }
+        catch (Exception ex)
+        {
+            _gateway = null;
+            System.Diagnostics.Debug.WriteLine($"[gateway] failed to start: {ex.Message}");
+        }
+    }
+
+    /// <summary>What the phone's home screen shows. Runs on the UI thread.</summary>
+    private object StatusForPhone() => new
+    {
+        time = DateTime.Now,
+        weather = _tempest is null ? null : LocalWeatherForAgent(),
+        weatherSummary = $"{WeatherTileValue.Text} {WeatherTileDetail.Text}".Trim(),
+        cameras = _cameraConfigs.Select((c, i) => new { index = i, name = c.Name, live = i < _tiles.Count && _tiles[i].IsPlaying }),
+        activity = _events.Take(30).Select(e => new
+        {
+            camera = e.CameraName, kind = e.Label, start = e.Start, active = e.IsActive, duration = e.DurationText,
+        }),
+    };
+
+    private async Task<byte[]?> SnapshotAsync(int index, CancellationToken ct)
+    {
+        if (index < 0 || index >= _cameraConfigs.Count) return null;
+        using var client = new ReolinkClient(_cameraConfigs[index]);
+        try { return await client.GetSnapshotAsync(ct); } catch (Exception) { return null; }
+    }
+
+    private async void PairPhone_Click(object sender, RoutedEventArgs e)
+    {
+        MenuFlyout.Hide();
+        if (_gateway is null)
+        {
+            PairingUrl.Text = "The phone gateway isn't running (check gateway.enabled and the assistant settings).";
+            PairingQr.Source = null;
+        }
+        else
+        {
+            PairingUrl.Text = _gateway.Url;
+            PairingQr.Source = await QrImageAsync(_gateway.PairingPayload);
+        }
+        PairingPage.Visibility = Visibility.Visible;
+    }
+
+    private async void ResetPairing_Click(object sender, RoutedEventArgs e)
+    {
+        if (_gateway is null) return;
+        _gateway.ResetPairing();
+        PairingQr.Source = await QrImageAsync(_gateway.PairingPayload);
+    }
+
+    private void ClosePairing_Click(object sender, RoutedEventArgs e)
+    {
+        PairingPage.Visibility = Visibility.Collapsed;
+        PairingQr.Source = null; // don't leave the key on screen
+    }
+
+    private static async Task<Microsoft.UI.Xaml.Media.Imaging.BitmapImage> QrImageAsync(string payload)
+    {
+        using var generator = new QRCoder.QRCodeGenerator();
+        using var data = generator.CreateQrCode(payload, QRCoder.QRCodeGenerator.ECCLevel.M);
+        var png = new QRCoder.PngByteQRCode(data).GetGraphic(12);
+        var image = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+        using var stream = new Windows.Storage.Streams.InMemoryRandomAccessStream();
+        await stream.WriteAsync(png.AsBuffer());
+        stream.Seek(0);
+        await image.SetSourceAsync(stream);
+        return image;
+    }
+
     // ---- Keyboard (convenience only; everything is also reachable by touch) -----
 
     private void Quit_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args) => Close();
@@ -429,6 +513,7 @@ public sealed partial class MainWindow : Window
         _monitor?.Dispose();
         _tempest?.Dispose();
         _voice?.Dispose();
+        if (_gateway is not null) _ = _gateway.DisposeAsync().AsTask();
         if (_agent is not null) _ = _agent.DisposeAsync().AsTask();
         foreach (var t in _tiles) t.Dispose();
     }

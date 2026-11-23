@@ -196,10 +196,10 @@ public sealed class AgentHost : IAsyncDisposable
         IsRunning ? WriteAsync(new { type = "end_conversation" }, CancellationToken.None) : Task.CompletedTask;
 
     /// <summary>Sends a chat message; replies arrive through the Delta/Message/Idle events with the returned id.</summary>
-    public async Task<string> SendChatAsync(string text, CancellationToken ct = default)
+    public async Task<string> SendChatAsync(string text, CancellationToken ct = default, string? id = null)
     {
         await EnsureStartedAsync(ct);
-        var id = Guid.NewGuid().ToString("N")[..8];
+        id ??= Guid.NewGuid().ToString("N")[..8];
         await WriteAsync(new { type = "chat", id, text }, ct);
         return id;
     }

@@ -10,6 +10,7 @@ public sealed class AppSettings
     public int MaxEvents { get; set; } = 200;
     public WeatherSettings Weather { get; set; } = new();
     public AssistantSettings Assistant { get; set; } = new();
+    public GatewaySettings Gateway { get; set; } = new();
     public List<CameraConfig> Cameras { get; set; } = [];
 
     public static string SettingsDirectory { get; } =
@@ -72,6 +73,13 @@ public sealed class AssistantSettings
     public string? AgentPath { get; set; }
 
     public bool IsConfigured => !string.IsNullOrWhiteSpace(FoundryBaseUrl) && !string.IsNullOrWhiteSpace(SpeechEndpoint);
+}
+
+/// <summary>HTTPS API for the SideCar phone and watch apps (paired with a QR code).</summary>
+public sealed class GatewaySettings
+{
+    public bool Enabled { get; set; } = true;
+    public int Port { get; set; } = 8443;
 }
 
 public sealed class WeatherSettings

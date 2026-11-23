@@ -70,6 +70,16 @@ public sealed class ReolinkClient : IDisposable
         return result;
     }
 
+    /// <summary>A JPEG still from the camera (Reolink "Snap" command), or null if it fails.</summary>
+    public async Task<byte[]?> GetSnapshotAsync(CancellationToken ct)
+    {
+        var url = $"cgi-bin/api.cgi?cmd=Snap&channel={_camera.Channel}&rs={Guid.NewGuid():N}" +
+                  $"&user={Uri.EscapeDataString(_camera.Username)}&password={Uri.EscapeDataString(_camera.Password)}";
+        using var response = await _http.GetAsync(url, ct);
+        if (!response.IsSuccessStatusCode || response.Content.Headers.ContentType?.MediaType != "image/jpeg") return null;
+        return await response.Content.ReadAsByteArrayAsync(ct);
+    }
+
     private static bool AlarmOn(JsonElement value, string name) =>
         value.TryGetProperty(name, out var e) &&
         e.ValueKind == JsonValueKind.Object &&

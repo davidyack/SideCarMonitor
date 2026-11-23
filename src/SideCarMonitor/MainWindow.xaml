@@ -348,6 +348,14 @@
                                     <TextBlock x:Name="FullScreenButtonText" Text="Exit full screen" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Button>
+                            <Button Click="PairPhone_Click"
+                                    Width="{StaticResource MenuButtonWidth}" Height="{StaticResource TouchTarget}"
+                                    FontSize="{StaticResource FontBody}" HorizontalContentAlignment="Left">
+                                <StackPanel Orientation="Horizontal" Spacing="{StaticResource Gap}">
+                                    <FontIcon Glyph="&#xE8EA;" FontSize="{StaticResource FontIcon}" />
+                                    <TextBlock Text="Pair phone" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
                             <Button Click="QuitButton_Click"
                                     Width="{StaticResource MenuButtonWidth}" Height="{StaticResource TouchTarget}"
                                     FontSize="{StaticResource FontBody}" HorizontalContentAlignment="Left">
@@ -360,6 +368,38 @@
                     </Flyout>
                 </Button.Flyout>
             </Button>
+        </Grid>
+
+        <!-- ===================== Pair phone (QR code) ===================== -->
+        <Grid x:Name="PairingPage" Visibility="Collapsed" Background="{StaticResource KioskBackground}"
+              Padding="{StaticResource PagePadding}" ColumnSpacing="{StaticResource Gap}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Border Background="White" Padding="{StaticResource PanelPadding}" CornerRadius="{StaticResource Corner}"
+                    VerticalAlignment="Center">
+                <Image x:Name="PairingQr" Stretch="Uniform" Width="{StaticResource QrSize}" Height="{StaticResource QrSize}" />
+            </Border>
+            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="{StaticResource Gap}">
+                <TextBlock Text="Pair your phone" FontSize="{StaticResource FontTitle}" FontWeight="SemiBold" />
+                <TextBlock TextWrapping="Wrap" FontSize="{StaticResource FontBody}" Foreground="{StaticResource MutedText}"
+                           Text="Open the SideCar app on your phone and scan this code. It works on your home Wi-Fi." />
+                <TextBlock x:Name="PairingUrl" FontSize="{StaticResource FontCaption}" Foreground="{StaticResource MutedText}"
+                           TextWrapping="Wrap" />
+                <Button Click="ResetPairing_Click" Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}"
+                        CornerRadius="{StaticResource SmallCorner}" FontSize="{StaticResource FontBody}">
+                    <StackPanel Orientation="Horizontal" Spacing="{StaticResource Gap}">
+                        <FontIcon Glyph="&#xE72C;" FontSize="{StaticResource FontIcon}" />
+                        <TextBlock Text="New code (unpairs old phones)" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+                <Button Click="ClosePairing_Click" Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}"
+                        CornerRadius="{StaticResource SmallCorner}" FontSize="{StaticResource FontBody}"
+                        Background="{StaticResource TileCobalt}" Foreground="White">
+                    <TextBlock Text="Done" VerticalAlignment="Center" />
+                </Button>
+            </StackPanel>
         </Grid>
 
         <!-- Voice assistant: floating mic button (lower right) over every page -->

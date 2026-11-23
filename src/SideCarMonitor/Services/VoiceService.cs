@@ -123,6 +123,71 @@ public sealed class VoiceService : IDisposable
         return i >= 0 && i + 1 < parts.Length ? (parts[i + 1], match.Name) : (null, "default mic");
     }
 
+    /// <summary>Transcribes a 16 kHz / 16-bit / mono PCM WAV (from the phone or watch) with MAI-Transcribe.</summary>
+    public async Task<string> TranscribeWavAsync(byte[] wav, CancellationToken ct)
+    {
+        var config = CreateConfig();
+        config.Model = _settings.TranscribeModel;
+        using var push = AudioInputStream.CreatePushStream(AudioStreamFormat.GetWaveFormatPCM(16000, 16, 1));
+        using var audio = AudioConfig.FromStreamInput(push);
+        using var recognizer = new SpeechRecognizer(config, audio);
+
+        var text = new System.Text.StringBuilder();
+        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        recognizer.Recognized += (_, e) =>
+        {
+            if (e.Result.Reason == ResultReason.RecognizedSpeech && e.Result.Text.Length > 0)
+                lock (text) text.Append(text.Length > 0 ? " " : "").Append(e.Result.Text.Trim());
+        };
+        recognizer.Canceled += (_, e) =>
+        {
+            if (e.Reason == CancellationReason.Error) done.TrySetException(new InvalidOperationException(e.ErrorDetails));
+            else done.TrySetResult();
+        };
+        recognizer.SessionStopped += (_, _) => done.TrySetResult();
+
+        await recognizer.StartContinuousRecognitionAsync();
+        var pcm = PcmData(wav);
+        push.Write(pcm.ToArray());
+        push.Close(); // end of audio: the recognizer finishes and stops the session
+        await done.Task.WaitAsync(TimeSpan.FromSeconds(60), ct);
+        await recognizer.StopContinuousRecognitionAsync();
+        lock (text) return text.ToString();
+    }
+
+    /// <summary>Speaks text with the MAI voice into a WAV file (16 kHz mono) for the phone or watch to play.</summary>
+    public async Task<byte[]> SynthesizeWavAsync(string text, CancellationToken ct)
+    {
+        var config = CreateConfig();
+        config.SetSpeechSynthesisOutputFormat(SpeechSynthesisOutputFormat.Riff16Khz16BitMonoPcm);
+        using var synth = new SpeechSynthesizer(config, null as AudioConfig);
+        var lang = _settings.Voice.Length >= 5 ? _settings.Voice[..5] : "en-US";
+        var ssml = $"""
+            <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="{lang}">
+              <voice name="{SecurityElement.Escape(_settings.Voice)}">{SecurityElement.Escape(ForSpeech(text))}</voice>
+            </speak>
+            """;
+        using var result = await synth.SpeakSsmlAsync(ssml).WaitAsync(ct);
+        if (result.Reason == ResultReason.Canceled)
+            throw new InvalidOperationException(SpeechSynthesisCancellationDetails.FromResult(result).ErrorDetails);
+        return result.AudioData;
+    }
+
+    /// <summary>Returns the PCM samples of a WAV file (the "data" chunk), or the bytes as-is if there's no RIFF header.</summary>
+    private static ReadOnlyMemory<byte> PcmData(byte[] wav)
+    {
+        if (wav.Length < 12 || wav[0] != 'R' || wav[1] != 'I' || wav[2] != 'F' || wav[3] != 'F') return wav;
+        var pos = 12;
+        while (pos + 8 <= wav.Length)
+        {
+            var id = System.Text.Encoding.ASCII.GetString(wav, pos, 4);
+            var size = BitConverter.ToInt32(wav, pos + 4);
+            if (id == "data") return wav.AsMemory(pos + 8, Math.Min(size, wav.Length - pos - 8));
+            pos += 8 + size + (size & 1);
+        }
+        return wav;
+    }
+
     public Task StopSpeakingAsync() => _synth?.StopSpeakingAsync() ?? Task.CompletedTask;
 
     /// <summary>Strips simple Markdown so list markers and asterisks aren't read aloud.</summary>
