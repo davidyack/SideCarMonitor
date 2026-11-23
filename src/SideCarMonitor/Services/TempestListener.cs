@@ -98,8 +98,13 @@ public sealed class TempestListener : IDisposable
 
     public TempestListener(DispatcherQueue ui) => _ui = ui;
 
+    /// <summary>Last full observation, saved so a restart has data before the next one-minute broadcast.</summary>
+    private static readonly string CachePath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SideCarMonitor", "tempest-last.json");
+
     public void Start()
     {
+        LoadCachedObservation();
         _udp = new UdpClient();
         // Share the port with other Tempest listeners (Home Assistant, WeatherFlow apps, ...).
         _udp.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
@@ -164,6 +169,7 @@ public sealed class TempestListener : IDisposable
                     s.StrikesToday += (int)(D(15) ?? 0);
                     if ((D(15) ?? 0) > 0 && D(14) is double km && km > 0) s.LastStrikeKm = km;
                     s.BatteryVolts = D(16);
+                    if (!_replayingCache) SaveCachedObservation(json);
                     if (s.StationPressureMb is double p)
                     {
                         s.PressureHistory.Add((DateTime.Now, p));
@@ -193,6 +199,30 @@ public sealed class TempestListener : IDisposable
             // Ignore malformed or unexpected packets.
         }
         return false;
+    }
+
+    private bool _replayingCache;
+
+    private void LoadCachedObservation()
+    {
+        try
+        {
+            if (!File.Exists(CachePath) || DateTime.Now - File.GetLastWriteTime(CachePath) > TimeSpan.FromHours(2)) return;
+            _replayingCache = true;
+            if (Apply(File.ReadAllText(CachePath)))
+            {
+                // Rain/lightning "today" restart from zero; don't count the cached minute again.
+                State.RainTodayMm = 0;
+                State.StrikesToday = 0;
+            }
+        }
+        catch (Exception) { /* a bad cache just means waiting for the next broadcast */ }
+        finally { _replayingCache = false; }
+    }
+
+    private static void SaveCachedObservation(string json)
+    {
+        try { File.WriteAllText(CachePath, json); } catch (Exception) { }
     }
 
     public void Dispose()

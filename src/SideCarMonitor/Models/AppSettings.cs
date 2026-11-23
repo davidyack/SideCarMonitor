@@ -9,6 +9,7 @@ public sealed class AppSettings
     public double MotionPollSeconds { get; set; } = 1.0;
     public int MaxEvents { get; set; } = 200;
     public WeatherSettings Weather { get; set; } = new();
+    public AssistantSettings Assistant { get; set; } = new();
     public List<CameraConfig> Cameras { get; set; } = [];
 
     public static string SettingsDirectory { get; } =
@@ -46,6 +47,25 @@ public sealed class AppSettings
 
     private static AppSettings Parse(string json) =>
         JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new AppSettings();
+}
+
+/// <summary>Voice assistant: the SideCarAgent (Copilot SDK + Foundry model router) plus Azure Speech.</summary>
+public sealed class AssistantSettings
+{
+    /// <summary>Foundry OpenAI v1 endpoint the agent sends model calls to, e.g. https://name.openai.azure.com/openai/v1/</summary>
+    public string? FoundryBaseUrl { get; set; }
+    /// <summary>Deployment name for the agent's model.</summary>
+    public string Model { get; set; } = "model-router";
+    /// <summary>Custom-domain Speech endpoint, e.g. https://name.cognitiveservices.azure.com/</summary>
+    public string? SpeechEndpoint { get; set; }
+    public string TranscribeModel { get; set; } = "mai-transcribe-2-streaming";
+    public string Voice { get; set; } = "en-US-Harper:MAI-Voice-2.1-Flash";
+    /// <summary>Part of the microphone's name, e.g. "RODECaster Duo Main"; null = Windows default mic.</summary>
+    public string? Microphone { get; set; }
+    /// <summary>Path to SideCarAgent.exe; null = look for the dev build next to this repo.</summary>
+    public string? AgentPath { get; set; }
+
+    public bool IsConfigured => !string.IsNullOrWhiteSpace(FoundryBaseUrl) && !string.IsNullOrWhiteSpace(SpeechEndpoint);
 }
 
 public sealed class WeatherSettings

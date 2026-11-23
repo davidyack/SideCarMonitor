@@ -1,19 +1,27 @@
-﻿// SideCarAgent: a chat agent built on the GitHub Copilot SDK (agent harness), with inference routed
+// SideCarAgent: a chat agent built on the GitHub Copilot SDK (agent harness), with inference routed
 // to a Microsoft Foundry model-router deployment (BYOK, Responses API, Entra bearer token).
 //
 // It talks to its host (the SideCar kiosk) over stdin/stdout using one JSON object per line:
 //   host -> agent : {"type":"token","value":"<entra access token>"}
 //                   {"type":"chat","id":"c1","text":"hello"}
+//                   {"type":"tool_result","id":"t1","result":{...}}
 //                   {"type":"shutdown"}
 //   agent -> host : {"type":"ready"} {"type":"delta","id","text"} {"type":"message","id","text","model"}
 //                   {"type":"idle","id"} {"type":"error","id","message"}
+//                   {"type":"tool","id","name"}               (a tool started; for status display)
+//                   {"type":"tool_request","id","name","args"} (the host answers with tool_result)
+// Tools whose data lives on the host (like local weather) are answered by the host over this pipe,
+// so the agent needs no network or device access of its own.
 // stdout carries only protocol messages; diagnostics go to stderr.
 // The agent never signs in itself: the host owns the Entra login and sends short-lived tokens.
 
+using System.Collections.Concurrent;
+using System.ComponentModel;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading.Channels;
 using Microsoft.Copilot;
+using Microsoft.Extensions.AI;
 using PermissionDecision = Microsoft.Copilot.Rpc.PermissionDecision;
 
 var baseUrl = Environment.GetEnvironmentVariable("SIDECAR_FOUNDRY_BASEURL")
@@ -24,6 +32,7 @@ var output = new ProtocolWriter(Console.OpenStandardOutput());
 string? token = null;
 var tokenReady = new TaskCompletionSource();
 var chats = Channel.CreateUnbounded<(string Id, string Text)>();
+var pendingTools = new ConcurrentDictionary<string, TaskCompletionSource<string>>();
 
 // ---- Read host messages -------------------------------------------------------------
 var reader = Task.Run(async () =>
@@ -43,6 +52,10 @@ var reader = Task.Run(async () =>
                     break;
                 case "chat":
                     await chats.Writer.WriteAsync(((string?)msg!["id"] ?? Guid.NewGuid().ToString("N"), (string?)msg["text"] ?? ""));
+                    break;
+                case "tool_result":
+                    if (pendingTools.TryRemove((string?)msg!["id"] ?? "", out var waiter))
+                        waiter.TrySetResult(msg["result"]?.ToJsonString() ?? "null");
                     break;
                 case "shutdown":
                     chats.Writer.TryComplete();
@@ -78,6 +91,25 @@ await using var client = new CopilotClient(new CopilotClientOptions
 });
 await client.StartAsync();
 
+// ---- Tools answered by the host ----------------------------------------------------------
+async Task<string> AskHostAsync(string name, object? args = null)
+{
+    var id = "t" + Guid.NewGuid().ToString("N")[..8];
+    var waiter = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+    pendingTools[id] = waiter;
+    output.Write(new { type = "tool_request", id, name, args });
+    if (await Task.WhenAny(waiter.Task, Task.Delay(TimeSpan.FromSeconds(10))) == waiter.Task)
+        return await waiter.Task;
+    pendingTools.TryRemove(id, out _);
+    return JsonSerializer.Serialize(new { error = "The kiosk didn't answer in time." });
+}
+
+var weatherTool = CopilotTool.DefineTool(
+    [Description("Current conditions from the user's own Tempest weather station at home: temperature, feels-like, wind, humidity, rain today, pressure trend, lightning.")]
+    async () => await AskHostAsync("get_local_weather"),
+    new CopilotToolOptions { SkipPermission = true, Idempotent = true },
+    new AIFunctionFactoryOptions { Name = "get_local_weather" });
+
 #pragma warning disable MCPSDK001 // Named BYOK providers are experimental in the SDK.
 await using var session = await client.CreateSessionAsync(new CreateSessionOptions
 {
@@ -105,11 +137,13 @@ await using var session = await client.CreateSessionAsync(new CreateSessionOptio
         Mode = SystemMessageMode.Replace,
         Content = """
             You are SideCar, a helpful assistant shown on a small 7-inch kiosk touchscreen beside the user's desk.
-            Keep answers short and easy to read at a glance: a few sentences or a short list.
+            Your replies are also read aloud, so keep them short and natural to hear: a few sentences, no tables.
+            For questions about the weather at home (outside, temperature, wind, rain), call get_local_weather
+            and answer from it. It's the user's own weather station, so prefer it over general knowledge.
             """,
     },
-    // Step 1: chat only. No built-in tools (shell, files) until we decide on them together.
-    Tools = new SessionToolOptions { AvailableTools = [] },
+    // Only our own host-answered tools. No built-in tools (shell, files) until we decide on them together.
+    Tools = new SessionToolOptions { AvailableTools = ["get_local_weather"], Definitions = [weatherTool] },
     Permissions = new SessionPermissionOptions
     {
         OnRequest = (_, _) => Task.FromResult(PermissionDecision.Reject("Tools are not enabled for this agent yet.")),
@@ -130,6 +164,9 @@ session.On<SessionEvent>(evt =>
             break;
         case AssistantMessageEvent message when !string.IsNullOrEmpty(message.Data.Content):
             output.Write(new { type = "message", id = currentId, text = message.Data.Content, model = message.Data.Model });
+            break;
+        case ToolExecutionStartEvent tool:
+            output.Write(new { type = "tool", id = currentId, name = tool.Data.ToolName });
             break;
         case SessionErrorEvent error:
             output.Write(new { type = "error", id = currentId, message = error.Data.Message });

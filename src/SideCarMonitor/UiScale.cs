@@ -43,5 +43,11 @@ public static class UiScale
         r["SmallCorner"] = new CornerRadius(S(4));
         r["ActivityWidth"] = new GridLength(S(210));
         r["ActivityRowHeight"] = S(52);
+
+        // Voice assistant: floating mic button and side panel
+        r["FabSize"] = S(64);
+        r["FabCorner"] = new CornerRadius(S(32));
+        r["FabMargin"] = new Thickness(0, 0, S(12), S(12));
+        r["AssistantWidth"] = S(440);
     }
 }

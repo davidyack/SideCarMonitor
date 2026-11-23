@@ -9,6 +9,16 @@
   },
   "motionPollSeconds": 1.0,
   "maxEvents": 200,
+  "assistant": {
+    // Voice assistant (mic button, lower right). Uses your Entra sign-in (Azure CLI login).
+    "foundryBaseUrl": null,        // e.g. "https://<resource>.openai.azure.com/openai/v1/"
+    "model": "model-router",
+    "speechEndpoint": null,        // e.g. "https://<resource>.cognitiveservices.azure.com/"
+    "transcribeModel": "mai-transcribe-2-streaming",
+    "voice": "en-US-Harper:MAI-Voice-2.1-Flash",
+    "microphone": null,            // part of the mic name, e.g. "RODECaster Duo Main"; null = Windows default
+    "agentPath": null              // null = use the dev build of src/SideCarAgent
+  },
   "weather": {
     // WeatherFlow Tempest: read the hub's local UDP broadcasts (port 50222), no token needed.
     "tempestEnabled": true,

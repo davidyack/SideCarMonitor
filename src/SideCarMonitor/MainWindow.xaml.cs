@@ -19,6 +19,8 @@ public sealed partial class MainWindow : Window
     private readonly WeatherFormat _wx;
     private MotionMonitor? _monitor;
     private TempestListener? _tempest;
+    private AgentHost? _agent;
+    private VoiceService? _voice;
     private CameraTile? _focused;
 
     public MainWindow(AppSettings settings, bool createdNewSettings)
@@ -27,6 +29,7 @@ public sealed partial class MainWindow : Window
         _wx = new WeatherFormat(settings.Weather.Imperial);
         InitializeComponent();
         StartTempest();
+        StartAssistant();
 
         PlaceOnKioskMonitor();
 
@@ -227,6 +230,56 @@ public sealed partial class MainWindow : Window
 
     private void WeatherTile_Click(object sender, RoutedEventArgs e) => ShowWeather();
 
+    // ---- Voice assistant ----------------------------------------------------------------
+
+    private void StartAssistant()
+    {
+        var a = _settings.Assistant;
+        if (!a.IsConfigured)
+        {
+            Assistant.Initialize(null, null, "Set assistant.foundryBaseUrl and assistant.speechEndpoint in settings to turn on the assistant.");
+            return;
+        }
+        // The kiosk owns the Entra sign-in: the Azure CLI login first, then an interactive browser sign-in as a fallback.
+        var credential = new Azure.Identity.ChainedTokenCredential(
+            new Azure.Identity.AzureCliCredential(),
+            new Azure.Identity.InteractiveBrowserCredential());
+        _agent = new AgentHost(a, credential, DispatcherQueue);
+        _voice = new VoiceService(a, credential);
+        _agent.ToolHandler = name => name switch
+        {
+            "get_local_weather" => LocalWeatherForAgent(),
+            _ => new { error = $"Unknown tool '{name}'." },
+        };
+        Assistant.Initialize(_agent, _voice, null);
+    }
+
+    /// <summary>Snapshot of the Tempest readings for the agent's get_local_weather tool.</summary>
+    private object LocalWeatherForAgent()
+    {
+        if (_tempest?.State is not { LastObservation: DateTime last } s)
+            return new { error = "No reading from the Tempest weather station yet." };
+        return new
+        {
+            station = "Tempest weather station at the user's home",
+            observedAt = last.ToString("h:mm tt"),
+            minutesAgo = (int)(DateTime.Now - last).TotalMinutes,
+            condition = WeatherFormat.Condition(s),
+            temperature = _wx.Temp(s.TemperatureC),
+            feelsLike = _wx.Temp(s.FeelsLikeC),
+            humidity = s.HumidityPct is double rh ? $"{rh:0}%" : null,
+            dewPoint = _wx.Temp(s.DewPointC),
+            wind = $"{_wx.Speed(s.RapidWindMs ?? s.WindAvgMs)} from {WeatherFormat.Direction(s.RapidWindDirDeg ?? s.WindDirDeg)}",
+            windGust = _wx.Speed(s.WindGustMs),
+            rainToday = _wx.Rain(s.RainTodayMm) + " (counted since the kiosk started)",
+            precipitationNow = WeatherFormat.PrecipText(s.PrecipType) is { Length: > 0 } p ? p : "none",
+            pressure = $"{_wx.Pressure(s.StationPressureMb)} station pressure, {_wx.PressureTrend(s.PressureTrendMb)}",
+            uvIndex = s.Uv,
+            lightningStrikesToday = s.StrikesToday,
+            lastLightning = s.LastStrike is DateTime ls ? $"{ls:h:mm tt}, {_wx.Distance(s.LastStrikeKm)} away" : null,
+        };
+    }
+
     // ---- Weather (Tempest) ------------------------------------------------------------
 
     private void StartTempest()
@@ -237,6 +290,7 @@ public sealed partial class MainWindow : Window
             _tempest = new TempestListener(DispatcherQueue);
             _tempest.Updated += UpdateWeather;
             _tempest.Start();
+            if (_tempest.State.LastObservation is not null) UpdateWeather(); // cached reading from last run
         }
         catch (Exception ex)
         {
@@ -374,6 +428,8 @@ public sealed partial class MainWindow : Window
         _clock.Stop();
         _monitor?.Dispose();
         _tempest?.Dispose();
+        _voice?.Dispose();
+        if (_agent is not null) _ = _agent.DisposeAsync().AsTask();
         foreach (var t in _tiles) t.Dispose();
     }
 }

@@ -4,6 +4,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:models="using:SideCarMonitor.Models"
+    xmlns:controls="using:SideCarMonitor.Controls"
     Title="SideCar Monitor">
 
     <!-- All sizes are StaticResources scaled by display.uiScale (see UiScale.cs); this is a small touchscreen.
@@ -360,5 +361,8 @@
                 </Button.Flyout>
             </Button>
         </Grid>
+
+        <!-- Voice assistant: floating mic button (lower right) over every page -->
+        <controls:AssistantOverlay x:Name="Assistant" />
     </Grid>
 </Window>

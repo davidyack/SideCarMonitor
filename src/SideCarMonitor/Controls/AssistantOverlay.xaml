@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="SideCarMonitor.Controls.AssistantOverlay"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:SideCarMonitor.Controls">
+
+    <!-- Sits on top of every page. With the panel closed only the round mic button takes touches. -->
+    <Grid>
+        <!-- Dimmed backdrop: tap to close -->
+        <Rectangle x:Name="Backdrop" Fill="#99000000" Visibility="Collapsed" Tapped="Backdrop_Tapped" />
+
+        <!-- Voice panel -->
+        <Border x:Name="Panel" Visibility="Collapsed" HorizontalAlignment="Right" Width="{StaticResource AssistantWidth}"
+                Margin="{StaticResource PagePadding}" Background="{StaticResource PanelBackground}"
+                BorderBrush="{StaticResource PanelBorder}" BorderThickness="1" CornerRadius="{StaticResource Corner}"
+                Padding="{StaticResource PanelPadding}">
+            <Grid RowSpacing="{StaticResource Gap}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <!-- Status + close -->
+                <Grid ColumnSpacing="{StaticResource Gap}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <FontIcon x:Name="StatusIcon" Glyph="&#xE720;" FontSize="{StaticResource FontIcon}" VerticalAlignment="Center" />
+                    <TextBlock x:Name="StatusText" Grid.Column="1" Text="SideCar" FontSize="{StaticResource FontTitle}"
+                               FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                    <Button Grid.Column="2" Click="Close_Click" Width="{StaticResource TouchTarget}" Height="{StaticResource TouchTarget}"
+                            Padding="0" CornerRadius="{StaticResource SmallCorner}" AutomationProperties.Name="Close assistant">
+                        <FontIcon Glyph="&#xE711;" FontSize="{StaticResource FontIcon}" />
+                    </Button>
+                </Grid>
+
+                <!-- Conversation -->
+                <ListView x:Name="Conversation" Grid.Row="1" SelectionMode="None">
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="Padding" Value="0" />
+                            <Setter Property="Margin" Value="0,0,0,8" />
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="local:ChatLine">
+                            <Border Background="{x:Bind Background}" HorizontalAlignment="{x:Bind Alignment}"
+                                    CornerRadius="{StaticResource SmallCorner}" Padding="{StaticResource LabelPadding}">
+                                <TextBlock Text="{x:Bind Text, Mode=OneWay}" FontSize="{StaticResource FontBody}"
+                                           TextWrapping="Wrap" IsTextSelectionEnabled="False" />
+                            </Border>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+
+                <!-- What you're saying right now -->
+                <TextBlock x:Name="PartialText" Grid.Row="2" FontSize="{StaticResource FontBody}" FontStyle="Italic"
+                           Foreground="{StaticResource MutedText}" TextWrapping="Wrap" Visibility="Collapsed" />
+
+                <!-- Type instead -->
+                <Grid Grid.Row="3" ColumnSpacing="{StaticResource Gap}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="Input" PlaceholderText="Or type here" FontSize="{StaticResource FontBody}"
+                             MinHeight="{StaticResource TouchTarget}" VerticalContentAlignment="Center" KeyDown="Input_KeyDown" />
+                    <Button Grid.Column="1" Click="Send_Click" Width="{StaticResource TouchTarget}" Height="{StaticResource TouchTarget}"
+                            Padding="0" CornerRadius="{StaticResource SmallCorner}" AutomationProperties.Name="Send">
+                        <FontIcon Glyph="&#xE724;" FontSize="{StaticResource FontIcon}" />
+                    </Button>
+                </Grid>
+
+                <!-- Talk / Stop -->
+                <Grid Grid.Row="4" ColumnSpacing="{StaticResource Gap}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="2*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Button x:Name="TalkButton" Click="Talk_Click" HorizontalAlignment="Stretch" Height="{StaticResource TouchTarget}"
+                            Background="{StaticResource TileCobalt}" Foreground="White" CornerRadius="{StaticResource SmallCorner}"
+                            FontSize="{StaticResource FontBody}">
+                        <StackPanel Orientation="Horizontal" Spacing="{StaticResource Gap}">
+                            <FontIcon Glyph="&#xE720;" FontSize="{StaticResource FontIcon}" />
+                            <TextBlock x:Name="TalkButtonText" Text="Talk" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="StopButton" Grid.Column="1" Click="Stop_Click" HorizontalAlignment="Stretch"
+                            Height="{StaticResource TouchTarget}" CornerRadius="{StaticResource SmallCorner}" FontSize="{StaticResource FontBody}">
+                        <StackPanel Orientation="Horizontal" Spacing="{StaticResource Gap}">
+                            <FontIcon Glyph="&#xE71A;" FontSize="{StaticResource FontIcon}" />
+                            <TextBlock Text="Stop" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                </Grid>
+            </Grid>
+        </Border>
+
+        <!-- Floating mic button, lower-right corner -->
+        <Button x:Name="MicButton" Click="MicButton_Click" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                Margin="{StaticResource FabMargin}" Width="{StaticResource FabSize}" Height="{StaticResource FabSize}"
+                CornerRadius="{StaticResource FabCorner}" Padding="0" Background="{StaticResource TileCobalt}"
+                Foreground="White" BorderThickness="0" AutomationProperties.Name="Talk to SideCar">
+            <FontIcon Glyph="&#xE720;" FontSize="{StaticResource FontTileValue}" />
+        </Button>
+    </Grid>
+</UserControl>
