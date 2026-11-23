@@ -259,6 +259,21 @@
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
+            <!-- Shown when the decision model (or a burst limit) paused Home Assistant control. Only you can resume. -->
+            <Border x:Name="HomePausedBanner" Grid.ColumnSpan="4" Grid.RowSpan="2" Canvas.ZIndex="10" Visibility="Collapsed"
+                    VerticalAlignment="Top" Background="{StaticResource AlertBrush}" Padding="{StaticResource RowPadding}">
+                <Grid ColumnSpacing="{StaticResource Gap}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="HomePausedText" FontSize="{StaticResource FontBody}" FontWeight="SemiBold"
+                               TextWrapping="Wrap" VerticalAlignment="Center" />
+                    <Button Grid.Column="1" Content="Resume" Click="ResumeHome_Click" FontSize="{StaticResource FontBody}"
+                            MinHeight="{StaticResource ActivityRowHeight}" Padding="{StaticResource RowPadding}" />
+                </Grid>
+            </Border>
+
             <!-- Clock (wide) -->
             <Border Grid.ColumnSpan="2" Background="{StaticResource PanelBackground}" Padding="{StaticResource TilePadding}">
                 <Grid>

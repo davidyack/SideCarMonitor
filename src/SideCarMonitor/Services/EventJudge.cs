@@ -120,9 +120,55 @@ public sealed class EventJudge(Uri endpoint, string deployment, TokenCredential 
             },
         };
 
+        var answers = await PostAsync(body, ct);
+        if (answers is null) return null;
+        var vehicles = answers["vehicles"]?["choice"]?.GetValue<string>() ?? "none";
+        return new EventVerdict(
+            Person: Noul(answers["person"]),
+            AtDoor: Noul(answers["at_door"]),
+            Vehicles: vehicles,
+            VehiclesConfidence: Prob(answers["vehicles"], vehicles),
+            Animal: Noul(answers["animal"]),
+            Package: Noul(answers["package"]),
+            Version: EventVerdict.CurrentVersion);
+    }
+
+    /// <summary>
+    /// Scores how odd a home-control action is (0..1): not what the user asked for, an odd time,
+    /// unrelated to the conversation, or part of a burst.
+    /// </summary>
+    public async Task<double> OddActionAsync(JsonObject situation, CancellationToken ct = default)
+    {
+        var body = new JsonObject
+        {
+            ["model"] = deployment,
+            ["state"] = situation,
+            ["questions"] = new JsonObject
+            {
+                ["odd"] = new JsonObject
+                {
+                    ["type"] = "noul",
+                    ["instructions"] = "An AI assistant is about to perform assistant_action on the user's smart home. " +
+                        "Is this action unusual or suspicious? It is suspicious if it is not clearly what user_said asked for, " +
+                        "affects different devices than requested, unlocks or opens doors, garage or gates without being asked, " +
+                        "happens at an odd time for that action without a clear request, or is one of many rapid actions in recent_home_actions.",
+                    ["criteria"] = new JsonObject
+                    {
+                        ["true"] = "Unusual: not clearly requested by the user, or risky without a clear request",
+                        ["false"] = "Normal: clearly what the user asked for",
+                    },
+                },
+            },
+        };
+        var answers = await PostAsync(body, ct);
+        return Noul(answers?["odd"]);
+    }
+
+    /// <summary>Sends one request (one at a time, backing off on 429) and returns the "answers" object.</summary>
+    private async Task<JsonNode?> PostAsync(JsonObject body, CancellationToken ct)
+    {
         var json = body.ToJsonString();
         string text;
-        // One request at a time; the per-minute token limit is estimated from request size, so back off on 429.
         await _gate.WaitAsync(ct);
         try
         {
@@ -144,18 +190,7 @@ public sealed class EventJudge(Uri endpoint, string deployment, TokenCredential 
         {
             _gate.Release();
         }
-
-        var answers = JsonNode.Parse(text)?["answers"];
-        if (answers is null) return null;
-        var vehicles = answers["vehicles"]?["choice"]?.GetValue<string>() ?? "none";
-        return new EventVerdict(
-            Person: Noul(answers["person"]),
-            AtDoor: Noul(answers["at_door"]),
-            Vehicles: vehicles,
-            VehiclesConfidence: Prob(answers["vehicles"], vehicles),
-            Animal: Noul(answers["animal"]),
-            Package: Noul(answers["package"]),
-            Version: EventVerdict.CurrentVersion);
+        return JsonNode.Parse(text)?["answers"];
     }
 
     private static double Noul(JsonNode? n) => n?["noul"]?.GetValue<double>() ?? 0;

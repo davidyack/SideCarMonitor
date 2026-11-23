@@ -202,10 +202,21 @@ public sealed class AgentHost : IAsyncDisposable
         IsRunning ? WriteAsync(new { type = "end_conversation" }, CancellationToken.None) : Task.CompletedTask;
 
     /// <summary>Sends a chat message; replies arrive through the Delta/Message/Idle events with the returned id.</summary>
-    public async Task<string> SendChatAsync(string text, CancellationToken ct = default, string? id = null)
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _turnText = new();
+
+    /// <summary>What the user said to start this turn, or null for background turns the kiosk started itself.</summary>
+    public string? TurnText(string turn) => _turnText.TryGetValue(turn, out var t) ? t : null;
+
+    /// <param name="fromUser">False for turns the kiosk starts itself (e.g. to-do reviews).</param>
+    public async Task<string> SendChatAsync(string text, CancellationToken ct = default, string? id = null, bool fromUser = true)
     {
         await EnsureStartedAsync(ct);
         id ??= Guid.NewGuid().ToString("N")[..8];
+        if (fromUser && !id.StartsWith("review-", StringComparison.Ordinal))
+        {
+            if (_turnText.Count > 200) _turnText.Clear();
+            _turnText[id] = text;
+        }
         await WriteAsync(new { type = "chat", id, text }, ct);
         return id;
     }
