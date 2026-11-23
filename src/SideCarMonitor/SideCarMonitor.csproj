@@ -23,6 +23,8 @@
   <ItemGroup>
     <PackageReference Include="Azure.Identity" Version="1.21.0" />
     <PackageReference Include="Microsoft.CognitiveServices.Speech" Version="1.53.1" />
+    <PackageReference Include="Microsoft.Identity.Client" Version="4.92.0" />
+    <PackageReference Include="Microsoft.Identity.Client.Extensions.Msal" Version="4.92.0" />
     <PackageReference Include="Microsoft.Mxc.Sdk" Version="1.1.0" />
     <PackageReference Include="Microsoft.Playwright" Version="1.65.1" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.6.5" />

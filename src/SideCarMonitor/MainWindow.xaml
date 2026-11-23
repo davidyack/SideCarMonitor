@@ -283,9 +283,13 @@
                 </Grid>
             </Border>
 
-            <!-- Clock -->
-            <Border Background="{StaticResource PanelBackground}" Padding="{StaticResource TilePadding}">
+            <!-- Clock + next meeting (turns amber 15 minutes before) -->
+            <Border x:Name="ClockTile" Background="{StaticResource PanelBackground}" Padding="{StaticResource TilePadding}">
                 <Grid>
+                    <StackPanel VerticalAlignment="Top">
+                        <TextBlock x:Name="NextMeetingWhen" FontSize="{StaticResource FontCaption}" Foreground="{StaticResource MutedText}" />
+                        <TextBlock x:Name="NextMeetingText" FontSize="{StaticResource FontBody}" TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
                     <TextBlock x:Name="HomeClockText" FontSize="{StaticResource FontTileIcon}" FontWeight="Light"
                                VerticalAlignment="Center" />
                     <TextBlock x:Name="HomeDateText" FontSize="{StaticResource FontBody}" VerticalAlignment="Bottom"
@@ -499,12 +503,12 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <Button Click="EventPopupLive_Click" FontSize="{StaticResource FontBody}" Height="{StaticResource TouchTarget}"
+                        <Button x:Name="EventPopupAction" Click="EventPopupLive_Click" FontSize="{StaticResource FontBody}" Height="{StaticResource TouchTarget}"
                                 Padding="{StaticResource PanelPadding}" Background="{StaticResource TileCobalt}" Foreground="White"
                                 CornerRadius="{StaticResource SmallCorner}">
                             <StackPanel Orientation="Horizontal" Spacing="{StaticResource Gap}">
-                                <FontIcon Glyph="&#xE714;" FontSize="{StaticResource FontIcon}" />
-                                <TextBlock Text="Watch live" VerticalAlignment="Center" />
+                                <FontIcon x:Name="EventPopupActionIcon" Glyph="&#xE714;" FontSize="{StaticResource FontIcon}" />
+                                <TextBlock x:Name="EventPopupActionText" Text="Watch live" VerticalAlignment="Center" />
                             </StackPanel>
                         </Button>
                         <ProgressBar x:Name="EventPopupCountdown" Grid.Column="1" Maximum="30" VerticalAlignment="Center" Margin="12,0" />

@@ -66,6 +66,20 @@ public partial class App : Application
             return;
         }
 
+        // Calendar sign-in: "--calendar-login CTC" opens the browser to sign in that M365 account once.
+        if (cl.Contains("--calendar-login", StringComparer.OrdinalIgnoreCase))
+        {
+            var label = cl.SkipWhile(a => !a.Equals("--calendar-login", StringComparison.OrdinalIgnoreCase)).Skip(1).FirstOrDefault() ?? "Calendar";
+            _ = Task.Run(async () =>
+            {
+                var log = Path.Combine(Path.GetDirectoryName(TasksPath)!, "calendar.log");
+                try { File.AppendAllText(log, $"{DateTimeOffset.Now:u} {label} signed in as {await new Services.CalendarService().SignInAsync(label)}\n"); }
+                catch (Exception ex) { File.AppendAllText(log, $"{DateTimeOffset.Now:u} {label} sign-in failed: {ex.Message}\n"); }
+                Environment.Exit(0);
+            });
+            return;
+        }
+
         var (settings, createdNew) = AppSettings.Load();
         UiScale.Apply(Resources, settings.Display.UiScale);
         _window = new MainWindow(settings, createdNew);

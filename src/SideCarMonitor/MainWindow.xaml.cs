@@ -355,9 +355,20 @@ public sealed partial class MainWindow : Window
         // Already showing one? Switch to the newer event. Otherwise only when nobody is using the kiosk.
         if (EventPopup.Visibility != Visibility.Visible && KioskIsBusy) return;
         _popupEvent = ev;
+        _popupJoinUrl = null;
+        EventPopupImage.Visibility = Visibility.Visible;
+        EventPopupAction.Visibility = Visibility.Visible;
+        EventPopupActionText.Text = "Watch live";
+        EventPopupActionIcon.Glyph = "\uE714";
         FillEventPopup(ev);
         EventPopup.Visibility = Visibility.Visible;
-        _popupLeft = PopupSeconds;
+        StartPopupCountdown(PopupSeconds);
+    }
+
+    private void StartPopupCountdown(int seconds)
+    {
+        _popupLeft = seconds;
+        EventPopupCountdown.Maximum = seconds;
         EventPopupCountdown.Value = _popupLeft;
         if (_popupTimer is null)
         {
@@ -395,6 +406,12 @@ public sealed partial class MainWindow : Window
 
     private void EventPopupLive_Click(object sender, RoutedEventArgs e)
     {
+        if (_popupJoinUrl is { } join)
+        {
+            CloseEventPopup();
+            try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(join) { UseShellExecute = true }); } catch { }
+            return;
+        }
         var index = _popupEvent?.CameraIndex ?? -1;
         CloseEventPopup();
         if (index < 0) return;
@@ -417,6 +434,71 @@ public sealed partial class MainWindow : Window
     }
 
     private void ActivityTile_Click(object sender, RoutedEventArgs e) => ShowActivity();
+
+    // ---- Calendars: next meeting on the clock tile, amber 15 min before, popup 5 min before ----
+    private CalendarService? _calendar;
+    private CalendarTools? _calendarTools;
+    private readonly HashSet<string> _meetingPopups = [];
+    private string? _popupJoinUrl;
+
+    private CalEvent? NextMeeting() => _calendar?.Events
+        .Where(e => !e.AllDay && e.ShowAs != "free" && e.End > DateTime.Now && e.Start.Date == DateTime.Today)
+        .OrderBy(e => e.Start).FirstOrDefault();
+
+    private void UpdateMeetingTile()
+    {
+        var next = NextMeeting();
+        if (next is null)
+        {
+            NextMeetingWhen.Text = _calendar?.Problems.Count > 0 ? string.Join(", ", _calendar.Problems.Keys) + " needs sign-in" : "";
+            NextMeetingText.Text = _calendar?.Calendars.Count > 0 ? "No more meetings today" : "";
+            ClockTile.Background = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["PanelBackground"];
+            return;
+        }
+        var until = next.Start - DateTime.Now;
+        NextMeetingWhen.Text = until <= TimeSpan.Zero ? $"Now \u00B7 until {next.End:h:mm} \u00B7 {next.Calendar}"
+            : until <= TimeSpan.FromMinutes(60) ? $"In {Math.Ceiling(until.TotalMinutes)} min \u00B7 {next.Calendar}"
+            : $"{next.Start:h:mm tt} \u00B7 {next.Calendar}";
+        NextMeetingText.Text = next.Subject;
+        var soon = until <= TimeSpan.FromMinutes(15) && until > TimeSpan.FromMinutes(-5);
+        ClockTile.Background = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources[soon ? "TileAmber" : "PanelBackground"];
+    }
+
+    private DateTime _lastMeetingCheck;
+    private void CheckMeetings()
+    {
+        if (_calendar is null || DateTime.Now - _lastMeetingCheck < TimeSpan.FromSeconds(15)) return;
+        _lastMeetingCheck = DateTime.Now;
+        if (_calendar.IsStale) _ = _calendar.RefreshAsync();
+        UpdateMeetingTile();
+        foreach (var e in _calendar.Events.Where(e => !e.AllDay && e.ShowAs != "free"))
+        {
+            var until = e.Start - DateTime.Now;
+            if (until > TimeSpan.Zero && until <= TimeSpan.FromMinutes(5) && _meetingPopups.Add($"{e.Calendar}|{e.Subject}|{e.Start:o}"))
+            {
+                ShowMeetingPopup(e);
+                break;
+            }
+        }
+    }
+
+    /// <summary>The 5-minute reminder: same popup as camera events, with Join for online meetings.</summary>
+    private void ShowMeetingPopup(CalEvent e)
+    {
+        if (PairingPage.Visibility == Visibility.Visible) return;
+        _popupEvent = null;
+        _popupJoinUrl = e.JoinUrl.Length > 0 ? e.JoinUrl : null;
+        EventPopupTitle.Text = e.Subject;
+        EventPopupWhen.Text = $"{e.Start:h:mm tt}\u2013{e.End:h:mm tt} \u00B7 in {Math.Max(1, Math.Ceiling((e.Start - DateTime.Now).TotalMinutes))} min \u00B7 {e.Calendar}";
+        EventPopupAi.Text = string.Join(" \u00B7 ", new[] { e.Location, e.Organizer.Length > 0 ? $"Organizer: {e.Organizer}" : "", e.JoinUrl.Length > 0 ? "Online meeting" : "" }.Where(s => s.Length > 0));
+        EventPopupImage.Source = null;
+        EventPopupImage.Visibility = Visibility.Collapsed;
+        EventPopupAction.Visibility = _popupJoinUrl is null ? Visibility.Collapsed : Visibility.Visible;
+        EventPopupActionText.Text = "Join";
+        EventPopupActionIcon.Glyph = "\uE8AA";
+        EventPopup.Visibility = Visibility.Visible;
+        StartPopupCountdown(300); // stays up until it starts (or you dismiss it)
+    }
 
     // ---- LinkedIn tile ----
     private LinkedInFeed? _linkedIn;
@@ -563,6 +645,7 @@ public sealed partial class MainWindow : Window
         if (_tiles.Count > 0)
             StatusText.Text = $"{live} of {_tiles.Count} cameras live";
         UpdateLiveTiles(live);
+        CheckMeetings();
         CheckLinkedInSchedule();
         if (HomePage.Visibility == Visibility.Visible) RefreshHouseTile();
         UpdateWeatherStatus();
@@ -674,6 +757,10 @@ public sealed partial class MainWindow : Window
         LinkedInView.HomeRequested += ShowHome;
         _linkedIn.Changed += () => DispatcherQueue.TryEnqueue(UpdateLinkedInTile);
         UpdateLinkedInTile();
+        _calendar = new CalendarService();
+        _calendarTools = new CalendarTools(_calendar, _judge);
+        _calendar.Changed += () => DispatcherQueue.TryEnqueue(UpdateMeetingTile);
+        _ = _calendar.RefreshAsync();
         _home = HomeAssistantBridge.Create(a.HomeAssistantUrl, _judge);
         HouseView.Initialize(_home);
         HouseView.HomeRequested += ShowHome;
@@ -684,6 +771,9 @@ public sealed partial class MainWindow : Window
         _agent.ToolHandler = call => call.Name switch
         {
             "get_local_weather" => Task.FromResult<object?>(LocalWeatherForAgent()),
+            _ when call.Name.StartsWith("calendar_") => _calendarTools is null
+                ? Task.FromResult<object?>(new { error = "Calendars aren't set up." })
+                : _calendarTools.HandleAsync(call, _agent?.TurnText(call.Turn)),
             _ when call.Name.StartsWith("home_") => _home is null
                 ? Task.FromResult<object?>(new { error = "Home Assistant isn't set up (no token file)." })
                 : _home.HandleAsync(call, _agent?.TurnText(call.Turn)),
