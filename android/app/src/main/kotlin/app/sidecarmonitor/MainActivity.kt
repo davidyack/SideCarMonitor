@@ -50,6 +50,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // Reminders nag through notifications: ask once for permission, then check every 15 minutes and on open.
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 7)
+        app.sidecarmonitor.reminders.Reminders.schedule(this)
         setContent {
             SideCarTheme {
               // Surface sets the default text/icon color (white) for everything inside.

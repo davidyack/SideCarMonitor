@@ -510,6 +510,70 @@ public sealed partial class MainWindow : Window
         StartPopupCountdown(300); // stays up until it starts (or you dismiss it)
     }
 
+    // ---- Reminders: due ones stay on screen until handled; spoken when due and every 15 minutes while ignored ----
+    private ReminderService? _reminders;
+    private readonly Dictionary<string, DateTime> _reminderSpoken = [];
+
+    private void UpdateReminderBar()
+    {
+        var due = _reminders?.Due(DateTime.Now) ?? [];
+        ReminderBar.Visibility = due.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        if (due.Count == 0) return;
+        var r = due[0];
+        ReminderBar.Tag = r.Id;
+        ReminderText.Text = r.Text;
+        ReminderWhen.Text = $"Reminder \u00B7 due {r.Due:ddd h:mm tt}" + (r.Repeats ? $" \u00B7 {r.RepeatText}" : "") +
+                            (r.Snoozes > 0 ? $" \u00B7 snoozed {r.Snoozes}\u00D7" : "") + (due.Count > 1 ? $" \u00B7 {due.Count - 1} more" : "");
+    }
+
+    private DateTime _lastReminderCheck;
+    private void CheckReminders()
+    {
+        if (_reminders is null || DateTime.Now - _lastReminderCheck < TimeSpan.FromSeconds(10)) return;
+        _lastReminderCheck = DateTime.Now;
+        UpdateReminderBar();
+        // Say it out loud when it comes due, and again every 15 minutes while it's ignored (not while you're using the assistant).
+        foreach (var r in _reminders.Due(DateTime.Now))
+        {
+            if (_reminderSpoken.TryGetValue(r.Id, out var at) && DateTime.Now - at < TimeSpan.FromMinutes(15)) continue;
+            if (Assistant.IsBusy || _briefSpeech is not null) break;
+            _reminderSpoken[r.Id] = DateTime.Now;
+            _ = SayAsync($"Reminder: {r.Text}");
+            break;
+        }
+    }
+
+    private async Task SayAsync(string text)
+    {
+        if (_voice is null) return;
+        try
+        {
+            var wav = await _voice.SynthesizeWavAsync(text, CancellationToken.None);
+            var stream = new Windows.Storage.Streams.InMemoryRandomAccessStream();
+            using (var writer = new Windows.Storage.Streams.DataWriter(stream)) { writer.WriteBytes(wav); await writer.StoreAsync(); writer.DetachStream(); }
+            stream.Seek(0);
+            var player = new Windows.Media.Playback.MediaPlayer { Source = Windows.Media.Core.MediaSource.CreateFromStream(stream, "audio/wav") };
+            player.MediaEnded += (_, _) => player.Dispose();
+            player.Play();
+        }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[reminder] couldn't speak: {ex.Message}"); }
+    }
+
+    private void Reminder_Click(object sender, RoutedEventArgs e)
+    {
+        if (_reminders is null || ReminderBar.Tag is not string id) return;
+        var tag = (string)((Button)sender).Tag;
+        var error = tag switch
+        {
+            "done" => _reminders.Act(id, "done"),
+            "todo" => _reminders.Act(id, "todo"),
+            _ => _reminders.Act(id, "snooze", int.Parse(tag)),
+        };
+        if (error is not null) ReminderWhen.Text = error;
+        _reminderSpoken.Remove(id);
+        UpdateReminderBar();
+    }
+
     // ---- Morning (8 AM) and evening (8 PM) briefs ----
     private BriefService? _briefs;
     private Brief? _shownBrief;
@@ -824,6 +888,7 @@ public sealed partial class MainWindow : Window
         if (_tiles.Count > 0)
             StatusText.Text = $"{live} of {_tiles.Count} cameras live";
         UpdateLiveTiles(live);
+        CheckReminders();
         CheckBriefs();
         CheckMeetings();
         CheckLinkedInSchedule();
@@ -941,6 +1006,8 @@ public sealed partial class MainWindow : Window
         LinkedInView.HomeRequested += ShowHome;
         _linkedIn.Changed += () => DispatcherQueue.TryEnqueue(UpdateLinkedInTile);
         UpdateLinkedInTile();
+        _reminders = new ReminderService(_taskService);
+        _reminders.Changed += () => DispatcherQueue.TryEnqueue(UpdateReminderBar);
         _calendar = new CalendarService();
         _calendarTools = new CalendarTools(_calendar, _judge);
         _calendar.Changed += () => DispatcherQueue.TryEnqueue(UpdateMeetingTile);
@@ -961,6 +1028,7 @@ public sealed partial class MainWindow : Window
         _agent.ToolHandler = call => call.Name switch
         {
             "get_local_weather" => Task.FromResult<object?>(LocalWeatherForAgent()),
+            _ when call.Name.StartsWith("reminder_") => Task.FromResult<object?>(_reminders?.Handle(call, _agent?.TurnText(call.Turn)) ?? new { error = "Reminders aren't available." }),
             _ when call.Name.StartsWith("calendar_") => _calendarTools is null
                 ? Task.FromResult<object?>(new { error = "Calendars aren't set up." })
                 : _calendarTools.HandleAsync(call, _agent?.TurnText(call.Turn)),
@@ -1149,6 +1217,7 @@ public sealed partial class MainWindow : Window
                 _taskTools is null ? null : id => _taskTools.ReviewAsync(id, explicitRequest: true)));
             _gateway.Home = _home;
             _gateway.LinkedIn = _linkedIn;
+            _gateway.Reminders = _reminders;
             await _gateway.StartAsync();
         }
         catch (Exception ex)

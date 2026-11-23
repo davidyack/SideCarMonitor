@@ -93,6 +93,32 @@ public sealed class Gateway : IAsyncDisposable
         Key = LoadOrCreateKey();
     }
 
+    /// <summary>Reminders for the phone's notifications; null when not available.</summary>
+    public ReminderService? Reminders { get; set; }
+
+    private void MapReminders(WebApplication app)
+    {
+        app.MapGet("/api/reminders", () =>
+        {
+            if (Reminders is not { } rs) return Results.Json(new { available = false });
+            var now = DateTime.Now;
+            return Results.Json(new
+            {
+                available = true,
+                due = new JsonArray(rs.Due(now).Select(r => (JsonNode)ReminderService.ToJson(r)).ToArray()),
+                upcoming = new JsonArray(rs.Pending.Where(r => !r.IsDue(now)).Take(20).Select(r => (JsonNode)ReminderService.ToJson(r)).ToArray()),
+            });
+        });
+
+        // From the phone's notification buttons: done | todo | cancel | snooze (minutes; -1 = tomorrow 9 AM).
+        app.MapPost("/api/reminders/{id}/action", (string id, JsonObject body) =>
+        {
+            if (Reminders is not { } rs) return Results.NotFound();
+            var error = rs.Act(id, body["action"]?.GetValue<string>() ?? "done", body["minutes"]?.GetValue<int>() ?? 60);
+            return error is null ? Results.Ok(new { ok = true }) : Results.Json(new { error }, statusCode: 400);
+        });
+    }
+
     /// <summary>LinkedIn tile data for the phone; null when it isn't set up.</summary>
     public LinkedInFeed? LinkedIn { get; set; }
 
@@ -222,6 +248,7 @@ public sealed class Gateway : IAsyncDisposable
         MapTasks(app);
         MapHome(app);
         MapLinkedIn(app);
+        MapReminders(app);
 
         // Speech-to-text: body is 16 kHz, 16-bit, mono PCM WAV recorded on the phone or watch.
         app.MapPost("/api/listen", async (HttpRequest req, CancellationToken ct) =>

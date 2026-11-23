@@ -93,6 +93,12 @@ data class LinkedInInfo(
 @Serializable
 data class LiPerson(val url: String, val name: String = "", val headline: String = "", val summary: String = "", val posts: List<LiPost> = emptyList())
 
+@Serializable
+data class ReminderItem(val id: String, val text: String, val dueText: String = "", val repeats: String = "", val snoozes: Int = 0)
+
+@Serializable
+data class RemindersInfo(val available: Boolean = false, val due: List<ReminderItem> = emptyList())
+
 /** One message from the agent over the chat WebSocket. */
 data class ChatEvent(val type: String, val id: String?, val text: String?, val name: String?, val message: String?)
 
@@ -171,6 +177,17 @@ class SideCarClient(private val pairing: Pairing) {
     }
 
     suspend fun linkedInRefresh(url: String) = postJson("/api/linkedin/person/refresh", buildJsonObject { put("url", url) })
+
+    /** Reminders that are due now (they nag until handled). */
+    suspend fun dueReminders(): List<ReminderItem> = withContext(Dispatchers.IO) {
+        call(Request.Builder().url("$base/api/reminders").build()).use {
+            json.decodeFromString<RemindersInfo>(it.body.string()).due
+        }
+    }
+
+    /** done | todo | cancel | snooze (minutes; -1 = tomorrow 9 AM). Returns the error, or null. */
+    suspend fun reminderAction(id: String, action: String, minutes: Int = 60) =
+        postJson("/api/reminders/$id/action", buildJsonObject { put("action", action); put("minutes", minutes) })
 
     suspend fun homeSet(d: HomeDevice, on: Boolean) =
         postJson("/api/home/set", buildJsonObject { put("name", d.name); put("domain", d.domain); put("on", on) })

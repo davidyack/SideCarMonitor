@@ -521,6 +521,35 @@
             </Border>
         </Grid>
 
+        <!-- Due reminders: stays over every page until you act (Done, Snooze, To-do) -->
+        <Border x:Name="ReminderBar" Visibility="Collapsed" VerticalAlignment="Top" Margin="{StaticResource PagePadding}"
+                Background="{StaticResource TileAmber}" CornerRadius="{StaticResource Corner}" Padding="{StaticResource PanelPadding}">
+            <Grid ColumnSpacing="{StaticResource Gap}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <FontIcon Glyph="&#xEA8F;" FontSize="{StaticResource FontTileIcon}" VerticalAlignment="Center" />
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <TextBlock x:Name="ReminderText" FontSize="{StaticResource FontTitle}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                    <TextBlock x:Name="ReminderWhen" FontSize="{StaticResource FontCaption}" Opacity="0.85" />
+                </StackPanel>
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="{StaticResource SmallGap}" VerticalAlignment="Center">
+                    <Button Content="Done" Tag="done" Click="Reminder_Click" FontSize="{StaticResource FontBody}" Background="{StaticResource TileEmerald}" Foreground="White"
+                            Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}" CornerRadius="{StaticResource SmallCorner}" />
+                    <Button Content="10 min" Tag="10" Click="Reminder_Click" FontSize="{StaticResource FontBody}"
+                            Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}" CornerRadius="{StaticResource SmallCorner}" />
+                    <Button Content="1 hour" Tag="60" Click="Reminder_Click" FontSize="{StaticResource FontBody}"
+                            Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}" CornerRadius="{StaticResource SmallCorner}" />
+                    <Button Content="Tomorrow" Tag="-1" Click="Reminder_Click" FontSize="{StaticResource FontBody}"
+                            Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}" CornerRadius="{StaticResource SmallCorner}" />
+                    <Button Content="To-do" Tag="todo" Click="Reminder_Click" FontSize="{StaticResource FontBody}" Background="{StaticResource TileCobalt}" Foreground="White"
+                            Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}" CornerRadius="{StaticResource SmallCorner}" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
         <!-- Morning / evening brief: stays until dismissed -->
         <Grid x:Name="BriefPopup" Visibility="Collapsed" Background="#CC000000">
             <Border MaxWidth="1500" Margin="{StaticResource PagePadding}" VerticalAlignment="Center"

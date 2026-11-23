@@ -3,6 +3,7 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:allowBackup="true"
@@ -21,6 +22,9 @@
             </intent-filter>
         </activity>
         <!-- Pixel Watch companion: answers the watch over the Wear OS data layer -->
+        <!-- Buttons on reminder notifications (Done / 1 hour / To-do) -->
+        <receiver android:name=".reminders.ReminderActionReceiver" android:exported="false" />
+
         <service
             android:name=".wear.WatchBridgeService"
             android:exported="true">
