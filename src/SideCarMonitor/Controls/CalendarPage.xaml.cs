@@ -29,6 +29,9 @@ public sealed partial class CalendarPage : UserControl
     private string _addTitle = "Focus time";
 
     public event Action? HomeRequested;
+    /// <summary>Show the latest morning/evening brief.</summary>
+    public event Action? BriefRequested;
+    private void Brief_Click(object sender, RoutedEventArgs e) => BriefRequested?.Invoke();
 
     private const int FirstHour = 0, LastHour = 24;
     private double HourHeight => Res<double>("TouchTarget") * 1.1;

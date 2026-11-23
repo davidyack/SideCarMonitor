@@ -510,6 +510,110 @@ public sealed partial class MainWindow : Window
         StartPopupCountdown(300); // stays up until it starts (or you dismiss it)
     }
 
+    // ---- Morning (8 AM) and evening (8 PM) briefs ----
+    private BriefService? _briefs;
+    private Brief? _shownBrief;
+    private DateTime _lastBriefAttempt;
+
+    private void CheckBriefs()
+    {
+        if (_briefs?.Due(DateTime.Now) is not { } kind || DateTime.Now - _lastBriefAttempt < TimeSpan.FromMinutes(15)) return;
+        _lastBriefAttempt = DateTime.Now;
+        _ = Task.Run(() => _briefs.MakeAsync(kind));
+    }
+
+    private void ShowBrief(Brief? b)
+    {
+        _shownBrief = b;
+        BriefTitle.Text = b?.Title ?? "No brief yet";
+        BriefText.Text = b?.Text ?? "Briefs are made at 8 AM and 8 PM. Tap Make it now for one now.";
+        BriefRemake.Content = "Make it now";
+        BriefRemake.IsEnabled = true;
+        BriefPopup.Visibility = Visibility.Visible;
+    }
+
+    private void BriefDismiss_Click(object sender, RoutedEventArgs e)
+    {
+        if (_shownBrief is { } b) _briefs?.Dismiss(b);
+        BriefPopup.Visibility = Visibility.Collapsed;
+    }
+
+    private async void BriefRemake_Click(object sender, RoutedEventArgs e)
+    {
+        if (_briefs is null) return;
+        BriefRemake.IsEnabled = false;
+        BriefRemake.Content = "Making it\u2026";
+        var kind = DateTime.Now.Hour is >= 4 and < 15 ? "morning" : "evening";
+        var b = await Task.Run(() => _briefs.MakeAsync(kind));
+        if (b is null) { BriefRemake.Content = "Couldn't make it"; BriefRemake.IsEnabled = true; }
+    }
+
+    /// <summary>Called from the brief's background thread: gathers the facts on the UI thread, where they live.</summary>
+    private System.Text.Json.Nodes.JsonObject GatherBriefFactsOnUi(string kind)
+    {
+        var done = new TaskCompletionSource<System.Text.Json.Nodes.JsonObject>();
+        if (!DispatcherQueue.TryEnqueue(() =>
+            {
+                try { done.SetResult(GatherBriefFacts(kind)); } catch (Exception ex) { done.SetException(ex); }
+            }))
+            throw new InvalidOperationException("The kiosk is closing");
+        return done.Task.WaitAsync(TimeSpan.FromSeconds(20)).GetAwaiter().GetResult();
+    }
+
+    /// <summary>The facts a brief is written from (UI thread).</summary>
+    private System.Text.Json.Nodes.JsonObject GatherBriefFacts(string kind)
+    {
+        var J = (object? o) => System.Text.Json.Nodes.JsonNode.Parse(System.Text.Json.JsonSerializer.Serialize(o));
+        var now = DateTime.Now;
+        var morning = kind == "morning";
+        var since = morning ? now.Date.AddDays(-1).AddHours(20) : now.Date.AddHours(6);
+        var calDay = morning ? now.Date : now.Date.AddDays(1);
+        object? weather = null;
+        try { weather = _tempest is null ? null : LocalWeatherForAgent(); } catch { }
+
+        var events = (_calendar?.Events ?? []).Where(e => e.Start.Date == calDay || (e.AllDay && e.Start.Date <= calDay && e.End.Date > calDay))
+            .Select(e => new { e.Calendar, e.Subject, start = e.AllDay ? "all day" : e.Start.ToString("h:mm tt"), end = e.End.ToString("h:mm tt"), online = e.JoinUrl.Length > 0, e.Location });
+
+        object? tasks = null;
+        try
+        {
+            if (_taskService is { } ts)
+            {
+                var today = DateOnly.FromDateTime(now);
+                tasks = new
+                {
+                    today = ts.View(SideCarTasks.TaskView.Today).Select(t => new { t.Title, date = t.Date?.ToString("ddd MMM d") }),
+                    needsMe = ts.View(SideCarTasks.TaskView.NeedsMe).Select(t => t.Title),
+                    upcoming = ts.View(SideCarTasks.TaskView.Upcoming).Where(t => t.Date is { } d && d <= today.AddDays(3)).Select(t => new { t.Title, date = t.Date?.ToString("ddd MMM d") }),
+                    doneToday = morning ? null : ts.View(SideCarTasks.TaskView.Done).Take(15).Select(t => t.Title),
+                };
+            }
+        }
+        catch { }
+
+        var feed = _events.ToList().Where(e => e.Start >= since).ToList();
+        var activity = new
+        {
+            cameraEvents = feed.Count(e => e.IsCamera),
+            worthALook = feed.Where(e => e.Alert).Take(10).Select(e => $"{e.Start:h:mm tt} {e.Label} at {e.CameraName}: {e.VerdictText}"),
+            doorsAndLocks = feed.Where(e => e.Source == "door").Take(10).Select(e => $"{e.Start:h:mm tt} {e.Label}: {e.CameraName} {e.Detail}"),
+            sidecarSafeguards = feed.Where(e => e.Source is "system" or "sidecar" && (e.Alert || e.Label.StartsWith("Stopped") || e.Label.Contains("blocked"))).Take(8).Select(e => $"{e.Start:h:mm tt} {e.Label} {e.Detail}"),
+        };
+
+        var li = _linkedIn?.State;
+        return new System.Text.Json.Nodes.JsonObject
+        {
+            ["now"] = now.ToString("dddd MMMM d, h:mm tt"),
+            ["kind"] = kind,
+            ["weather_now"] = J(weather),
+            [morning ? "meetings_today" : "meetings_tomorrow"] = J(events),
+            ["todos"] = J(tasks),
+            [morning ? "activity_overnight" : "activity_today"] = J(activity),
+            ["house"] = J(new { lightsOn = HouseTileValue.Text, homeControlPaused = _home?.PausedReason }),
+            ["linkedin_digest"] = morning && li?.DigestAt?.Date == now.Date ? li.Digest : null,
+        };
+    }
+
     // ---- LinkedIn tile ----
     private LinkedInFeed? _linkedIn;
 
@@ -656,6 +760,7 @@ public sealed partial class MainWindow : Window
         if (_tiles.Count > 0)
             StatusText.Text = $"{live} of {_tiles.Count} cameras live";
         UpdateLiveTiles(live);
+        CheckBriefs();
         CheckMeetings();
         CheckLinkedInSchedule();
         if (HomePage.Visibility == Visibility.Visible) RefreshHouseTile();
@@ -777,6 +882,10 @@ public sealed partial class MainWindow : Window
         _calendar.Changed += () => DispatcherQueue.TryEnqueue(UpdateMeetingTile);
         CalendarView.Initialize(_calendar, _calendarTools);
         CalendarView.HomeRequested += ShowHome;
+        CalendarView.BriefRequested += () => ShowBrief(_briefs?.Latest);
+        _briefs = new BriefService(_agent, GatherBriefFactsOnUi);
+        _briefs.Ready += b => DispatcherQueue.TryEnqueue(() => ShowBrief(b));
+        if (_briefs.Latest is { Dismissed: false } pending && pending.At > DateTime.Now.AddHours(-14)) ShowBrief(pending);
         _ = _calendar.RefreshAsync();
         _home = HomeAssistantBridge.Create(a.HomeAssistantUrl, _judge);
         HouseView.Initialize(_home);

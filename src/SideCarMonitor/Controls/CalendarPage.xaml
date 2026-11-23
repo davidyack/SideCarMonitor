@@ -29,6 +29,8 @@
                 <TextBlock x:Name="DaySubtitle" FontSize="{StaticResource FontCaption}" Foreground="{StaticResource MutedText}" />
             </StackPanel>
             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="{StaticResource SmallGap}">
+                <Button Click="Brief_Click" Content="Brief" FontSize="{StaticResource FontBody}" Height="{StaticResource TouchTarget}"
+                        Padding="{StaticResource PanelPadding}" CornerRadius="{StaticResource SmallCorner}" Background="{StaticResource TileAmber}" />
                 <Button Click="Prev_Click" Width="{StaticResource TouchTarget}" Height="{StaticResource TouchTarget}" Padding="0"
                         CornerRadius="{StaticResource SmallCorner}" AutomationProperties.Name="Previous day">
                     <FontIcon Glyph="&#xE76B;" FontSize="{StaticResource FontIcon}" />

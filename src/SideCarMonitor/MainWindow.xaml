@@ -521,6 +521,31 @@
             </Border>
         </Grid>
 
+        <!-- Morning / evening brief: stays until dismissed -->
+        <Grid x:Name="BriefPopup" Visibility="Collapsed" Background="#CC000000">
+            <Border MaxWidth="1500" Margin="{StaticResource PagePadding}" VerticalAlignment="Center"
+                    Background="{StaticResource PanelBackground}" BorderBrush="{StaticResource TileAmber}" BorderThickness="2"
+                    CornerRadius="{StaticResource Corner}" Padding="{StaticResource PanelPadding}">
+                <Grid RowSpacing="{StaticResource Gap}">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TextBlock x:Name="BriefTitle" FontSize="{StaticResource FontTitle}" FontWeight="SemiBold" />
+                    <ScrollViewer Grid.Row="1" MaxHeight="760">
+                        <TextBlock x:Name="BriefText" FontSize="{StaticResource FontBody}" TextWrapping="Wrap" LineHeight="40" />
+                    </ScrollViewer>
+                    <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="{StaticResource Gap}" HorizontalAlignment="Right">
+                        <Button x:Name="BriefRemake" Content="Make it now" Click="BriefRemake_Click" FontSize="{StaticResource FontBody}"
+                                Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}" CornerRadius="{StaticResource SmallCorner}" />
+                        <Button Content="Dismiss" Click="BriefDismiss_Click" FontSize="{StaticResource FontBody}" Background="{StaticResource TileAmber}"
+                                Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}" CornerRadius="{StaticResource SmallCorner}" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
+
         <!-- Voice assistant: floating mic button (lower right) over every page -->
         <controls:AssistantOverlay x:Name="Assistant" />
     </Grid>
