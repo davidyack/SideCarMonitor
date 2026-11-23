@@ -113,6 +113,65 @@ class SideCarClient(private val pairing: Pairing) {
         call(Request.Builder().url("$base/api/speak").post(body).build()).use { it.body.bytes() }
     }
 
+    // ---- To-do list ------------------------------------------------------------------------
+
+    suspend fun tasks(): TasksPayload = withContext(Dispatchers.IO) {
+        call(Request.Builder().url("$base/api/tasks").build()).use { json.decodeFromString(it.body.string()) }
+    }
+
+    suspend fun week(start: String?): WeekPlan = withContext(Dispatchers.IO) {
+        val q = start?.let { "?start=$it" } ?: ""
+        call(Request.Builder().url("$base/api/tasks/week$q").build()).use { json.decodeFromString(it.body.string()) }
+    }
+
+    /** Runs an action on any task by id (not just the open one). */
+    suspend fun taskActionById(id: String, action: String, extra: Map<String, Any?> = emptyMap()) = taskAction(id, action, extra)
+
+    suspend fun task(id: String): TaskDetail = withContext(Dispatchers.IO) {
+        call(Request.Builder().url("$base/api/tasks/$id").build()).use { json.decodeFromString(it.body.string()) }
+    }
+
+    suspend fun addTask(title: String, pinToday: Boolean): TaskDetail = withContext(Dispatchers.IO) {
+        val body = buildJsonObject { put("title", title); put("pinToday", pinToday) }.toString()
+            .toRequestBody("application/json".toMediaType())
+        callOrRule(Request.Builder().url("$base/api/tasks").post(body).build())
+    }
+
+    /** Any task action: done, reopen, pin, unpin, help_on, help_off, drop_date, resume, accept, dismiss,
+     *  undo (entryId), note (text), deliverable (content), edit (fields + expectedVersion), take_pass. */
+    suspend fun taskAction(id: String, action: String, extra: Map<String, Any?> = emptyMap()): TaskDetail? =
+        withContext(Dispatchers.IO) {
+            val body = buildJsonObject {
+                put("action", action)
+                extra.forEach { (k, v) ->
+                    when (v) {
+                        is String -> put(k, v)
+                        is Boolean -> put(k, v)
+                        is Int -> put(k, v)
+                        null -> {}
+                        else -> put(k, v.toString())
+                    }
+                }
+            }.toString().toRequestBody("application/json".toMediaType())
+            if (action == "take_pass") {
+                call(Request.Builder().url("$base/api/tasks/$id/action").post(body).build()).close()
+                null
+            } else callOrRule(Request.Builder().url("$base/api/tasks/$id/action").post(body).build())
+        }
+
+    /** Returns the task, or throws with the kiosk's reason (e.g. "This task changed since you opened it"). */
+    private fun callOrRule(req: Request): TaskDetail {
+        client.newCall(req).execute().use { r ->
+            val text = r.body.string()
+            if (r.code == 409 || r.code == 400) {
+                val msg = runCatching { json.parseToJsonElement(text).jsonObject["error"]?.jsonPrimitive?.content }.getOrNull()
+                throw IllegalStateException(msg ?: "The kiosk refused that change")
+            }
+            if (!r.isSuccessful) throw IllegalStateException("Kiosk returned HTTP ${r.code}")
+            return json.decodeFromString(text)
+        }
+    }
+
     /** Opens the chat WebSocket. Send with [ChatConnection.send]; events arrive on [ChatConnection.events]. */
     fun openChat(): ChatConnection = ChatConnection()
 

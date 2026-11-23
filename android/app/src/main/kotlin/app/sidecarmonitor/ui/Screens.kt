@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Notifications
@@ -69,7 +70,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
-enum class Screen { Home, Cameras, Weather, Activity, Settings }
+enum class Screen { Home, Cameras, Weather, Activity, Tasks, Week, Settings }
 
 private fun JsonObject?.str(key: String): String? =
     this?.get(key)?.let { runCatching { it.jsonPrimitive.content }.getOrNull() }?.takeIf { it != "null" }
@@ -113,8 +114,18 @@ fun HomeScreen(state: UiState, onOpen: (Screen) -> Unit, onTalk: () -> Unit) {
             Tile(SideCarColors.Mauve, Modifier.weight(1f).aspectRatio(1f), onClick = onTalk,
                 icon = Icons.Filled.Mic, value = "", detail = "Ask anything", label = "SideCar")
         }
-        Tile(SideCarColors.Steel, Modifier.fillMaxWidth().height(72.dp), onClick = { onOpen(Screen.Settings) },
-            icon = Icons.Filled.Settings, value = "", detail = "", label = "Settings")
+        val todo = state.tasks?.views
+        val needs = todo?.needsMe.orEmpty()
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Tile(if (needs.isNotEmpty()) SideCarColors.Crimson else SideCarColors.Emerald, Modifier.weight(2f).height(130.dp),
+                onClick = { onOpen(Screen.Tasks) }, icon = Icons.Filled.Checklist,
+                value = (todo?.today?.size ?: 0).toString(),
+                detail = if (needs.isNotEmpty()) "${needs.size} need${if (needs.size == 1) "s" else ""} you"
+                         else todo?.today?.firstOrNull()?.title ?: "Nothing for today",
+                label = "To-do")
+            Tile(SideCarColors.Steel, Modifier.weight(1f).height(130.dp), onClick = { onOpen(Screen.Settings) },
+                icon = Icons.Filled.Settings, value = "", detail = "", label = "Settings")
+        }
     }
 }
 

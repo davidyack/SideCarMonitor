@@ -8,6 +8,10 @@ import app.sidecarmonitor.data.KioskStatus
 import app.sidecarmonitor.data.Pairing
 import app.sidecarmonitor.data.PairingStore
 import app.sidecarmonitor.data.SideCarClient
+import app.sidecarmonitor.data.TaskDetail
+import app.sidecarmonitor.data.TasksPayload
+import app.sidecarmonitor.data.TaskRow
+import app.sidecarmonitor.data.WeekPlan
 import app.sidecarmonitor.data.VoicePlayer
 import app.sidecarmonitor.data.VoiceRecorder
 import kotlinx.coroutines.CompletableDeferred
@@ -36,6 +40,12 @@ data class UiState(
     val assistantNote: String = "Tap Talk, or type below",
     val micLevel: Float = 0f,
     val lines: List<ChatLine> = emptyList(),
+    val tasks: TasksPayload? = null,
+    val openTask: TaskDetail? = null,
+    val taskMessage: String? = null,
+    val taskBusy: Boolean = false,
+    val week: WeekPlan? = null,
+    val weekOffset: Int = 0,
 )
 
 /**
@@ -110,13 +120,101 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 return
             }
             val s = c.status()
-            _state.update { it.copy(connected = true, connectionLabel = c.connectionLabel, status = s, lastError = null) }
+            val tasks = runCatching { c.tasks() }.getOrNull()
+            val open = _state.value.openTask?.let { o -> runCatching { c.task(o.row.id) }.getOrNull() }
+            _state.update {
+                it.copy(connected = true, connectionLabel = c.connectionLabel, status = s, lastError = null,
+                    tasks = tasks ?: it.tasks,
+                    // Don't replace the open task while an action is in flight.
+                    openTask = if (it.taskBusy || it.openTask == null) it.openTask else (open ?: it.openTask))
+            }
         } catch (e: Exception) {
             _state.update { it.copy(connected = false, lastError = e.message) }
         }
     }
 
     suspend fun snapshot(index: Int): ByteArray? = runCatching { client?.snapshot(index) }.getOrNull()
+
+    // ---- To-do list -------------------------------------------------------------------------
+
+    fun openTask(id: String) {
+        viewModelScope.launch {
+            val c = client ?: return@launch
+            try { _state.update { it.copy(openTask = c.task(id), taskMessage = null) } }
+            catch (e: Exception) { _state.update { it.copy(taskMessage = e.message) } }
+        }
+    }
+
+    fun closeTask() = _state.update { it.copy(openTask = null, taskMessage = null) }
+
+    // ---- Weekly plan --------------------------------------------------------------------------
+
+    fun loadWeek(offset: Int = _state.value.weekOffset) {
+        viewModelScope.launch {
+            val c = client ?: return@launch
+            val start = java.time.LocalDate.now().plusWeeks(offset.toLong()).toString()
+            try { _state.update { it.copy(week = c.week(start), weekOffset = offset, taskMessage = null) } }
+            catch (e: Exception) { _state.update { it.copy(taskMessage = e.message) } }
+        }
+    }
+
+    fun shiftWeek(delta: Int) = loadWeek(_state.value.weekOffset + delta)
+
+    /** Drag-and-drop: a day sets a flexible target date (your explicit reschedule); null clears the day. */
+    fun moveTaskToDay(taskId: String, date: String?) {
+        viewModelScope.launch {
+            val c = client ?: return@launch
+            try {
+                val extra: Map<String, Any?> = if (date == null) mapOf("clearDate" to true) else mapOf("date" to date, "hardDeadline" to false)
+                c.taskActionById(taskId, "edit", extra)
+                _state.update { it.copy(taskMessage = null) }
+            } catch (e: Exception) {
+                _state.update { it.copy(taskMessage = e.message) }
+            }
+            loadWeek()
+            runCatching { c.tasks() }.getOrNull()?.let { t -> _state.update { it.copy(tasks = t) } }
+        }
+    }
+
+    fun toggleDone(row: TaskRow) {
+        viewModelScope.launch {
+            val c = client ?: return@launch
+            try { c.taskActionById(row.id, if (row.status == "Done") "reopen" else "done") }
+            catch (e: Exception) { _state.update { it.copy(taskMessage = e.message) } }
+            loadWeek()
+        }
+    }
+
+    fun addTask(title: String, pinToday: Boolean) {
+        if (title.isBlank()) return
+        viewModelScope.launch {
+            val c = client ?: return@launch
+            try {
+                c.addTask(title.trim(), pinToday)
+                _state.update { it.copy(tasks = c.tasks(), taskMessage = null) }
+            } catch (e: Exception) { _state.update { it.copy(taskMessage = e.message) } }
+        }
+    }
+
+    /** Runs a task action on the kiosk (as you) and shows the saved result, or why it was refused. */
+    fun taskAction(action: String, extra: Map<String, Any?> = emptyMap()) {
+        val id = _state.value.openTask?.row?.id ?: return
+        viewModelScope.launch {
+            val c = client ?: return@launch
+            _state.update { it.copy(taskBusy = true, taskMessage = null) }
+            try {
+                val updated = c.taskAction(id, action, extra)
+                val msg = if (action == "take_pass") "The assistant is taking a pass. Check back in a minute." else null
+                _state.update { it.copy(openTask = updated ?: it.openTask, tasks = c.tasks(), taskMessage = msg) }
+            } catch (e: Exception) {
+                // Refused (e.g. changed since you opened it): show why and reload the latest.
+                val latest = runCatching { c.task(id) }.getOrNull()
+                _state.update { it.copy(taskMessage = e.message, openTask = latest ?: it.openTask) }
+            } finally {
+                _state.update { it.copy(taskBusy = false) }
+            }
+        }
+    }
 
     // ---- Voice assistant --------------------------------------------------------------------
 
@@ -178,12 +276,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         replyId = null
         acceptedId = CompletableDeferred()
         replyDone = CompletableDeferred()
-        if (!connection.send(text)) throw IllegalStateException("Not connected to the kiosk")
+        // If you're looking at a task, "it" means that task.
+        val context = _state.value.openTask?.row?.let { "[Context: the user is looking at task ${it.id} \"${it.title}\"]\n" } ?: ""
+        if (!connection.send(context + text)) throw IllegalStateException("Not connected to the kiosk")
 
         val reply = withTimeout(180_000) {
             replyId = acceptedId!!.await()
             replyDone!!.await()
         }
+        viewModelScope.launch { refreshOnce() }
         setAssistant(AssistantState.Speaking, "Speaking…")
         try {
             player.play(c.speak(reply))

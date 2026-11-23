@@ -43,7 +43,38 @@
             </Grid>
         </Grid>
 
-        <Grid Grid.Row="1" ColumnSpacing="{StaticResource Gap}">
+        <!-- Weekly plan: press and drag tasks between days -->
+        <Grid x:Name="WeekArea" Grid.Row="1" Visibility="Collapsed" RowSpacing="{StaticResource SmallGap}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <Grid ColumnSpacing="{StaticResource Gap}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Button Click="ListMode_Click" Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}"
+                        CornerRadius="{StaticResource SmallCorner}" FontSize="{StaticResource FontBody}" Content="List" />
+                <Button Grid.Column="1" Click="PrevWeek_Click" Width="{StaticResource TouchTarget}" Height="{StaticResource TouchTarget}"
+                        Padding="0" CornerRadius="{StaticResource SmallCorner}" AutomationProperties.Name="Previous week">
+                    <FontIcon Glyph="&#xE76B;" FontSize="{StaticResource FontIcon}" />
+                </Button>
+                <Button Grid.Column="2" Click="NextWeek_Click" Width="{StaticResource TouchTarget}" Height="{StaticResource TouchTarget}"
+                        Padding="0" CornerRadius="{StaticResource SmallCorner}" AutomationProperties.Name="Next week">
+                    <FontIcon Glyph="&#xE76C;" FontSize="{StaticResource FontIcon}" />
+                </Button>
+                <TextBlock x:Name="WeekLabel" Grid.Column="3" VerticalAlignment="Center" FontSize="{StaticResource FontBody}" />
+                <TextBlock Grid.Column="4" VerticalAlignment="Center" FontSize="{StaticResource FontCaption}" Foreground="{StaticResource MutedText}"
+                           Text="Press and drag a task to another day" />
+            </Grid>
+            <Grid x:Name="WeekColumns" Grid.Row="1" ColumnSpacing="{StaticResource SmallGap}" />
+        </Grid>
+
+        <Grid x:Name="ListArea" Grid.Row="1" ColumnSpacing="{StaticResource Gap}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="5*" />
                 <ColumnDefinition Width="7*" />
@@ -62,6 +93,7 @@
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
                     <Button x:Name="TabToday" Tag="Today" Click="Tab_Click" HorizontalAlignment="Stretch" Height="{StaticResource TouchTarget}"
                             CornerRadius="{StaticResource SmallCorner}" FontSize="{StaticResource FontCaption}" />
@@ -70,6 +102,8 @@
                     <Button x:Name="TabNeedsMe" Grid.Column="2" Tag="NeedsMe" Click="Tab_Click" HorizontalAlignment="Stretch"
                             Height="{StaticResource TouchTarget}" CornerRadius="{StaticResource SmallCorner}" FontSize="{StaticResource FontCaption}" />
                     <Button x:Name="TabDone" Grid.Column="3" Tag="Done" Click="Tab_Click" HorizontalAlignment="Stretch"
+                            Height="{StaticResource TouchTarget}" CornerRadius="{StaticResource SmallCorner}" FontSize="{StaticResource FontCaption}" />
+                    <Button x:Name="TabWeek" Grid.Column="4" Click="WeekTab_Click" HorizontalAlignment="Stretch" Content="Week"
                             Height="{StaticResource TouchTarget}" CornerRadius="{StaticResource SmallCorner}" FontSize="{StaticResource FontCaption}" />
                 </Grid>
 

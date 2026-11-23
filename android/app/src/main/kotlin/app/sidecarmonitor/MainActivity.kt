@@ -34,6 +34,9 @@ import app.sidecarmonitor.ui.Screen
 import app.sidecarmonitor.ui.SettingsScreen
 import app.sidecarmonitor.ui.SideCarColors
 import app.sidecarmonitor.ui.SideCarTheme
+import app.sidecarmonitor.ui.TaskDetailScreen
+import app.sidecarmonitor.ui.TasksScreen
+import app.sidecarmonitor.ui.WeekScreen
 import app.sidecarmonitor.ui.WeatherScreen
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
@@ -78,7 +81,12 @@ class MainActivity : ComponentActivity() {
                         return@Box
                     }
                     BackHandler(enabled = state.assistantOpen || screen != Screen.Home) {
-                        if (state.assistantOpen) vm.closeAssistant() else screen = Screen.Home
+                        when {
+                            state.assistantOpen -> vm.closeAssistant()
+                            state.openTask != null -> { vm.closeTask(); if (screen == Screen.Week) vm.loadWeek() }
+                            screen == Screen.Week -> screen = Screen.Tasks
+                            else -> screen = Screen.Home
+                        }
                     }
                     Box(Modifier.fillMaxSize().safeDrawingPadding()) {
                         when (screen) {
@@ -86,6 +94,14 @@ class MainActivity : ComponentActivity() {
                             Screen.Cameras -> CamerasScreen(state, vm::snapshot) { screen = Screen.Home }
                             Screen.Weather -> WeatherScreen(state) { screen = Screen.Home }
                             Screen.Activity -> ActivityScreen(state) { screen = Screen.Home }
+                            Screen.Tasks ->
+                                if (state.openTask != null) TaskDetailScreen(state, vm::taskAction) { vm.closeTask() }
+                                else TasksScreen(state, onOpen = vm::openTask, onAdd = vm::addTask,
+                                    onWeek = { vm.loadWeek(0); screen = Screen.Week }) { screen = Screen.Home }
+                            Screen.Week ->
+                                if (state.openTask != null) TaskDetailScreen(state, vm::taskAction) { vm.closeTask(); vm.loadWeek() }
+                                else WeekScreen(state.week, state.taskMessage, onMove = vm::moveTaskToDay, onToggleDone = vm::toggleDone,
+                                    onOpen = vm::openTask, onWeek = vm::shiftWeek) { screen = Screen.Tasks }
                             Screen.Settings -> SettingsScreen(state, onScan = ::scan, onUnpair = vm::unpair) { screen = Screen.Home }
                         }
                         if (!state.assistantOpen) MicFab(::talk, Modifier.align(Alignment.BottomEnd).padding(20.dp))

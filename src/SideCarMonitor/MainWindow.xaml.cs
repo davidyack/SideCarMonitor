@@ -481,7 +481,8 @@ public sealed partial class MainWindow : Window
         try
         {
             _gateway = new Gateway(_settings.Gateway.Port, new Gateway.Dependencies(
-                _agent, _voice, DispatcherQueue, StatusForPhone, SnapshotAsync));
+                _agent, _voice, DispatcherQueue, StatusForPhone, SnapshotAsync, _taskService,
+                _taskTools is null ? null : id => _taskTools.ReviewAsync(id, explicitRequest: true)));
             await _gateway.StartAsync();
         }
         catch (Exception ex)

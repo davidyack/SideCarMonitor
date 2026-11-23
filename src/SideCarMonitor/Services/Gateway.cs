@@ -31,7 +31,9 @@ public sealed class Gateway : IAsyncDisposable
         VoiceService? Voice,
         DispatcherQueue Ui,
         Func<object> Status,                        // runs on the UI thread
-        Func<int, CancellationToken, Task<byte[]?>> Snapshot);
+        Func<int, CancellationToken, Task<byte[]?>> Snapshot,
+        SideCarTasks.TaskService? Tasks = null,
+        Func<string, Task>? TakePass = null);
 
     private readonly int _port;
     private readonly Dependencies _deps;
@@ -102,6 +104,8 @@ public sealed class Gateway : IAsyncDisposable
         app.MapGet("/api/cameras/{index:int}/snapshot", async (int index, CancellationToken ct) =>
             await _deps.Snapshot(index, ct) is { } jpeg ? Results.File(jpeg, "image/jpeg") : Results.NotFound());
 
+        MapTasks(app);
+
         // Speech-to-text: body is 16 kHz, 16-bit, mono PCM WAV recorded on the phone or watch.
         app.MapPost("/api/listen", async (HttpRequest req, CancellationToken ct) =>
         {
@@ -131,6 +135,174 @@ public sealed class Gateway : IAsyncDisposable
             await ChatSessionAsync(ws, ctx.RequestAborted);
         });
     }
+
+    // ---- To-do list (the phone acts as you; the same rules as the kiosk apply) -----------------
+
+    private void MapTasks(WebApplication app)
+    {
+        app.MapGet("/api/tasks", () =>
+        {
+            var t = _deps.Tasks;
+            if (t is null) return Results.Problem("The to-do list isn't available.");
+            var brief = t.Store.Read().Briefs.LastOrDefault();
+            return Results.Json(new
+            {
+                today = t.Today.ToString("yyyy-MM-dd"),
+                todayLabel = t.Today.ToString("dddd, MMMM d"),
+                brief = brief is { Dismissed: false } && brief.Date == t.Today ? brief.Text : null,
+                views = new
+                {
+                    today = t.View(SideCarTasks.TaskView.Today).Select(x => TaskRow(t, x)),
+                    upcoming = t.View(SideCarTasks.TaskView.Upcoming).Select(x => TaskRow(t, x)),
+                    needsMe = t.View(SideCarTasks.TaskView.NeedsMe).Select(x => TaskRow(t, x)),
+                    done = t.View(SideCarTasks.TaskView.Done).Take(30).Select(x => TaskRow(t, x)),
+                },
+            });
+        });
+
+        // Weekly plan: Mon–Sun of the week containing ?start (default: this week), plus undated and earlier-overdue tasks.
+        app.MapGet("/api/tasks/week", (string? start) =>
+        {
+            var t = _deps.Tasks;
+            if (t is null) return Results.Problem("The to-do list isn't available.");
+            var today = t.Today;
+            var anchor = start is not null && DateOnly.TryParse(start, out var s) ? s : today;
+            var monday = anchor.AddDays(-(((int)anchor.DayOfWeek + 6) % 7));
+            var all = t.All();
+            bool Show(SideCarTasks.TaskItem x, DateOnly day) =>
+                x.Date == day && (x.Status == SideCarTasks.TodoStatus.Open || x.Completed is not null);
+            return Results.Json(new
+            {
+                today = today.ToString("yyyy-MM-dd"),
+                weekStart = monday.ToString("yyyy-MM-dd"),
+                weekLabel = $"{monday:MMM d} – {monday.AddDays(6):MMM d}",
+                days = Enumerable.Range(0, 7).Select(i => monday.AddDays(i)).Select(day => new
+                {
+                    date = day.ToString("yyyy-MM-dd"),
+                    label = day.ToString("dddd"),
+                    shortLabel = day.ToString("MMM d"),
+                    isToday = day == today,
+                    isPast = day < today,
+                    tasks = all.Where(x => Show(x, day))
+                               .OrderBy(x => x.Status).ThenBy(x => x.Priority).Select(x => TaskRow(t, x)),
+                }),
+                earlier = all.Where(x => x.Status == SideCarTasks.TodoStatus.Open && x.Date is { } d && d < monday)
+                             .OrderBy(x => x.Date).Select(x => TaskRow(t, x)),
+                noDay = all.Where(x => x.Status == SideCarTasks.TodoStatus.Open && x.Date is null)
+                           .OrderBy(x => x.Priority).Select(x => TaskRow(t, x)),
+            });
+        });
+
+        app.MapGet("/api/tasks/{id}", (string id) =>
+        {
+            var t = _deps.Tasks;
+            var x = t?.Get(id);
+            if (t is null || x is null) return Results.NotFound();
+            return Results.Json(TaskDetail(t, x));
+        });
+
+        app.MapPost("/api/tasks", async (HttpRequest req) =>
+        {
+            var t = _deps.Tasks;
+            if (t is null) return Results.Problem("The to-do list isn't available.");
+            var body = await JsonNode.ParseAsync(req.Body) as JsonObject ?? [];
+            try
+            {
+                var added = await OnUiAsync(() => t.Add(SideCarTasks.Actor.User, (string?)body["title"] ?? "",
+                    pinToday: body["pinToday"]?.GetValue<bool>() == true));
+                return Results.Json(TaskDetail(t, added));
+            }
+            catch (SideCarTasks.TaskRuleException ex) { return Results.Conflict(new { error = ex.Message }); }
+        });
+
+        // One endpoint for every action, so the phone and watch stay simple: {"action": "...", ...}
+        app.MapPost("/api/tasks/{id}/action", async (string id, HttpRequest req) =>
+        {
+            var t = _deps.Tasks;
+            if (t is null) return Results.Problem("The to-do list isn't available.");
+            var b = await JsonNode.ParseAsync(req.Body) as JsonObject ?? [];
+            string? S(string k) => b[k] is JsonValue v && v.TryGetValue<string>(out var s) ? s : null;
+            bool? B(string k) => b[k] is JsonValue v && v.TryGetValue<bool>(out var x) ? x : null;
+            int? I(string k) => b[k] is JsonValue v && v.TryGetValue<int>(out var x) ? x : null;
+            const SideCarTasks.Actor you = SideCarTasks.Actor.User;
+            try
+            {
+                var action = S("action") ?? "";
+                if (action == "take_pass")
+                {
+                    if (_deps.TakePass is null) return Results.Problem("The assistant isn't available.");
+                    _ = _deps.TakePass(id);
+                    return Results.Json(new { queued = true });
+                }
+                // Changes go through the UI thread, like the kiosk's own edits, so its views stay in sync.
+                var updated = await OnUiAsync(() => action switch
+                {
+                    "done" => t.MarkDone(you, id),
+                    "reopen" => t.Reopen(you, id),
+                    "pin" => t.PinToday(you, id, true),
+                    "unpin" => t.PinToday(you, id, false),
+                    "help_on" => t.SetAssistantHelp(you, id, true),
+                    "help_off" => t.SetAssistantHelp(you, id, false),
+                    "drop_date" => t.DropDate(you, id),
+                    "resume" => t.ResumeRollover(you, id),
+                    "accept" => t.AcceptRevision(you, id),
+                    "dismiss" => t.DismissRevision(you, id),
+                    "undo" => t.UndoRollover(you, id, S("entryId") ?? ""),
+                    "note" => t.AddNote(you, id, S("text") ?? ""),
+                    "deliverable" => t.SaveDeliverable(you, id, S("content") ?? ""),
+                    "edit" => t.Edit(you, id, I("expectedVersion"), S("title"), S("details"),
+                        S("priority") is { } p ? Enum.Parse<SideCarTasks.Priority>(p, true) : null,
+                        S("date") is { } d ? DateOnly.Parse(d) : null, B("clearDate") == true,
+                        B("hardDeadline") is { } h ? (h ? SideCarTasks.DateKind.Hard : SideCarTasks.DateKind.Flexible) : null),
+                    _ => throw new SideCarTasks.TaskRuleException($"Unknown action '{action}'."),
+                });
+                return Results.Json(TaskDetail(t, updated));
+            }
+            catch (SideCarTasks.TaskRuleException ex) { return Results.Conflict(new { error = ex.Message }); }
+            catch (FormatException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+    }
+
+    private static object TaskRow(SideCarTasks.TaskService t, SideCarTasks.TaskItem x) => new
+    {
+        id = x.Id,
+        title = x.Title,
+        priority = x.Priority.ToString(),
+        status = x.Status.ToString(),
+        date = x.Date?.ToString("yyyy-MM-dd"),
+        dateLabel = x.Date?.ToString("ddd MMM d"),
+        hard = x.DateType == SideCarTasks.DateKind.Hard,
+        pinned = x.PinnedToday,
+        help = x.AssistantHelp,
+        overdue = t.IsOverdue(x),
+        needsMe = t.NeedsMe(x),
+        draftVersion = x.Deliverable.Current?.Number,
+        question = x.PendingQuestionId is not null,
+        revision = x.Deliverable.PendingRevision is not null,
+    };
+
+    private static object TaskDetail(SideCarTasks.TaskService t, SideCarTasks.TaskItem x) => new
+    {
+        row = TaskRow(t, x),
+        details = x.Details,
+        version = x.Version,
+        needsDecision = t.NeedsDecision(x),
+        rolloverPaused = x.RolloverPaused,
+        rolloverCount = x.RolloverCount,
+        question = x.History.FirstOrDefault(e => e.Id == x.PendingQuestionId)?.Text,
+        deliverable = x.Deliverable.Current is { } c
+            ? new { number = c.Number, author = c.Author.ToString(), at = c.At.ToString("MMM d h:mm tt"), content = c.Content } : null,
+        pendingRevision = x.Deliverable.PendingRevision?.Content,
+        history = Enumerable.Reverse(x.History).Take(30).Select(e => new
+        {
+            id = e.Id,
+            at = e.At.ToString("MMM d h:mm tt"),
+            author = e.Author.ToString(),
+            kind = e.Kind.ToString(),
+            text = e.Text,
+            canUndo = e.Rollover is { Undone: false } r && r.VersionAfter == x.Version,
+        }),
+    };
 
     private async Task ChatSessionAsync(WebSocket ws, CancellationToken ct)
     {

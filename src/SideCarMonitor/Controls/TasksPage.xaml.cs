@@ -26,6 +26,8 @@ public sealed partial class TasksPage : UserControl
     private ToggleSwitch? _hardSwitch;
     private Priority? _editPriority;
     private int _loadedVersion;
+    private bool _weekMode;
+    private int _weekOffset;
 
     public event Action? HomeRequested;
 
@@ -85,7 +87,133 @@ public sealed partial class TasksPage : UserControl
             _ => "Nothing upcoming.",
         } : "";
 
+        if (_weekMode) BuildWeek();
         if (!_dirty) ShowDetail();
+    }
+
+    // ---- Weekly plan (drag between days) -----------------------------------------------------
+
+    private void WeekTab_Click(object sender, RoutedEventArgs e) => SetWeekMode(true);
+    private void ListMode_Click(object sender, RoutedEventArgs e) => SetWeekMode(false);
+    private void PrevWeek_Click(object sender, RoutedEventArgs e) { _weekOffset--; BuildWeek(); }
+    private void NextWeek_Click(object sender, RoutedEventArgs e) { _weekOffset++; BuildWeek(); }
+
+    private void SetWeekMode(bool on)
+    {
+        _weekMode = on;
+        WeekArea.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+        ListArea.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
+        if (on) { _weekOffset = 0; BuildWeek(); } else Refresh();
+    }
+
+    private void BuildWeek()
+    {
+        if (_tasks is null) return;
+        var today = _tasks.Today;
+        var anchor = today.AddDays(7 * _weekOffset);
+        var monday = anchor.AddDays(-(((int)anchor.DayOfWeek + 6) % 7));
+        WeekLabel.Text = $"{monday:MMM d} \u2013 {monday.AddDays(6):MMM d}";
+        var all = _tasks.All();
+
+        WeekColumns.Children.Clear();
+        WeekColumns.ColumnDefinitions.Clear();
+        var columns = Enumerable.Range(0, 7).Select(i => (DateOnly?)monday.AddDays(i)).Append(null).ToList();
+        for (var i = 0; i < columns.Count; i++)
+        {
+            WeekColumns.ColumnDefinitions.Add(new ColumnDefinition());
+            var day = columns[i];
+            var tasks = all.Where(t => day is null
+                    ? t.Status == TodoStatus.Open && t.Date is null
+                    : t.Date == day && (t.Status == TodoStatus.Open || t.Completed is not null))
+                .OrderBy(t => t.Status).ThenBy(t => t.Priority).ToList();
+            var column = WeekColumn(day, today, tasks);
+            Grid.SetColumn(column, i);
+            WeekColumns.Children.Add(column);
+        }
+    }
+
+    private Border WeekColumn(DateOnly? day, DateOnly today, List<TaskItem> tasks)
+    {
+        var past = day is { } d0 && d0 < today;
+        var header = new StackPanel { Padding = new Thickness(Num("SmallGap")) };
+        header.Children.Add(new TextBlock
+        {
+            Text = day?.ToString("ddd") ?? "No day", FontSize = Num("FontBody"), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Foreground = day == today ? Res("TileEmerald") : Res("KioskForeground"),
+        });
+        header.Children.Add(new TextBlock { Text = day?.ToString("MMM d") ?? "yet", FontSize = Num("FontCaption"), Foreground = Res("MutedText") });
+
+        var list = new ListView
+        {
+            SelectionMode = ListViewSelectionMode.None, IsItemClickEnabled = true,
+            CanDragItems = true, AllowDrop = !past, CanReorderItems = false, Tag = day,
+        };
+        foreach (var t in tasks)
+        {
+            var text = new TextBlock
+            {
+                Text = (t.DateType == DateKind.Hard ? "\U0001F512 " : "") + t.Title, TextWrapping = TextWrapping.Wrap,
+                FontSize = Num("FontCaption"),
+                TextDecorations = t.Status == TodoStatus.Done ? Windows.UI.Text.TextDecorations.Strikethrough : Windows.UI.Text.TextDecorations.None,
+                Foreground = t.Status == TodoStatus.Done ? Res("MutedText") : Res("KioskForeground"),
+            };
+            var row = new Border
+            {
+                Child = text, BorderThickness = new Thickness(Num("Dot") / 2, 0, 0, 0), BorderBrush = PriorityBrush(t.Priority),
+                Padding = new Thickness(Num("SmallGap"), Num("SmallGap"), 0, Num("SmallGap")),
+            };
+            list.Items.Add(new ListViewItem { Content = row, Tag = t.Id, Padding = new Thickness(0), MinHeight = Num("TouchTarget") * 0.8 });
+        }
+        list.ItemClick += (_, e) =>
+        {
+            if (e.ClickedItem is Border b && list.Items.OfType<ListViewItem>().FirstOrDefault(i => i.Content == b) is { Tag: string id }) OpenFromWeek(id);
+        };
+        list.DragItemsStarting += (_, e) =>
+        {
+            var item = list.Items.OfType<ListViewItem>().FirstOrDefault(i => e.Items.Contains(i.Content) || e.Items.Contains(i));
+            var t = item?.Tag is string id ? _tasks!.Get(id) : null;
+            // Hard deadlines and finished tasks don't move by dragging.
+            if (t is null || t.DateType == DateKind.Hard || t.Status == TodoStatus.Done) { e.Cancel = true; return; }
+            e.Data.SetText(t.Id);
+            e.Data.RequestedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Move;
+        };
+        list.DragOver += (_, e) => e.AcceptedOperation = past
+            ? Windows.ApplicationModel.DataTransfer.DataPackageOperation.None
+            : Windows.ApplicationModel.DataTransfer.DataPackageOperation.Move;
+        list.Drop += async (_, e) =>
+        {
+            if (past || !e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Text)) return;
+            var id = await e.DataView.GetTextAsync();
+            var t = _tasks!.Get(id);
+            if (t is null || t.Date == day) return;
+            // A drop is your explicit reschedule to a flexible target on that day (or no day).
+            Do(() => day is { } d ? _tasks.Edit(Actor.User, id, date: d, dateType: DateKind.Flexible) : _tasks.Edit(Actor.User, id, clearDate: true));
+        };
+
+        var panel = new Grid { RowSpacing = Num("SmallGap") };
+        panel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        panel.RowDefinitions.Add(new RowDefinition());
+        panel.Children.Add(header);
+        Grid.SetRow(list, 1);
+        panel.Children.Add(list);
+        return new Border
+        {
+            Child = panel, Background = Res("PanelBackground"),
+            BorderBrush = day == today ? Res("TileEmerald") : Res("PanelBorder"), BorderThickness = new Thickness(day == today ? 2 : 1),
+            CornerRadius = (CornerRadius)Application.Current.Resources["SmallCorner"], Opacity = past ? 0.7 : 1,
+        };
+    }
+
+    private void OpenFromWeek(string id)
+    {
+        var t = _tasks?.Get(id);
+        if (t is null) return;
+        _view = t.Status == TodoStatus.Done ? TaskView.Done
+              : _tasks!.NeedsMe(t) ? TaskView.NeedsMe
+              : _tasks.View(TaskView.Today).Any(x => x.Id == id) ? TaskView.Today : TaskView.Upcoming;
+        _selectedId = id;
+        _dirty = false;
+        SetWeekMode(false);
     }
 
     private ListViewItem Row(TaskItem t)
@@ -130,7 +258,7 @@ public sealed partial class TasksPage : UserControl
     private void Tab_Click(object sender, RoutedEventArgs e)
     {
         _view = Enum.Parse<TaskView>((string)((Button)sender).Tag);
-        Refresh();
+        if (_weekMode) SetWeekMode(false); else Refresh();
     }
 
     private void Home_Click(object sender, RoutedEventArgs e) => HomeRequested?.Invoke();
