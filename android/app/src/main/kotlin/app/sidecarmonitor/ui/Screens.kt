@@ -235,7 +235,9 @@ private fun WeatherRow(title: String, value: String?, detail: String?) {
 }
 
 @Composable
-fun ActivityScreen(state: UiState, snapshot: suspend (Int) -> ByteArray?, eventSnapshot: suspend (String, Int) -> ByteArray?, onBack: () -> Unit) {
+fun ActivityScreen(state: UiState, snapshot: suspend (Int) -> ByteArray?, eventSnapshot: suspend (String, Int) -> ByteArray?,
+                   onClear: () -> Unit, onBack: () -> Unit) {
+    var history by remember { mutableStateOf(false) }
     // Tapping an event opens its details; Back returns to the list.
     var selected by remember { mutableStateOf<app.sidecarmonitor.data.ActivityItem?>(null) }
     selected?.let { a ->
@@ -245,8 +247,17 @@ fun ActivityScreen(state: UiState, snapshot: suspend (Int) -> ByteArray?, eventS
     }
     Column(Modifier.fillMaxSize()) {
         PageHeader("Activity", onBack)
-        val items = state.status?.activity.orEmpty()
-        if (items.isEmpty()) Text("No activity yet", Modifier.padding(16.dp), color = SideCarColors.Muted)
+        val all = state.status?.activity.orEmpty()
+        val items = if (history) all else all.filter { !it.cleared }
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Clear", Modifier.background(SideCarColors.Crimson).clickable { history = false; onClear() }
+                .padding(horizontal = 16.dp, vertical = 10.dp), fontSize = 15.sp)
+            Text(if (history) "History: on" else "History", Modifier.background(if (history) SideCarColors.Amber else SideCarColors.Panel)
+                .clickable { history = !history }.padding(horizontal = 16.dp, vertical = 10.dp), fontSize = 15.sp)
+            val hidden = all.count { it.cleared }
+            if (hidden > 0) Text("$hidden cleared", Modifier.padding(top = 10.dp), color = SideCarColors.Muted, fontSize = 13.sp)
+        }
+        if (items.isEmpty()) Text(if (all.isEmpty()) "No activity yet" else "All clear", Modifier.padding(16.dp), color = SideCarColors.Muted)
         LazyColumn(Modifier.padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             items(items, key = { it.id.ifBlank { it.start + it.camera } }) { a ->
                 Row(Modifier.fillMaxWidth().background(if (a.active || a.alert) SideCarColors.Crimson else SideCarColors.Panel)

@@ -93,6 +93,9 @@ public sealed class Gateway : IAsyncDisposable
         Key = LoadOrCreateKey();
     }
 
+    /// <summary>Clears the Activity feed (History keeps everything); set by the window.</summary>
+    public Action? ClearActivity { get; set; }
+
     /// <summary>Reminders for the phone's notifications; null when not available.</summary>
     public ReminderService? Reminders { get; set; }
 
@@ -280,6 +283,7 @@ public sealed class Gateway : IAsyncDisposable
         MapHome(app);
         MapLinkedIn(app);
         MapReminders(app);
+        app.MapPost("/api/activity/clear", () => { ClearActivity?.Invoke(); return Results.Ok(new { ok = true }); });
 
         // Speech-to-text: body is 16 kHz, 16-bit, mono PCM WAV recorded on the phone or watch.
         app.MapPost("/api/listen", async (HttpRequest req, CancellationToken ct) =>

@@ -144,6 +144,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     suspend fun snapshot(index: Int): ByteArray? = runCatching { client?.snapshot(index) }.getOrNull()
 
+    /** Clears the Activity feed on the kiosk (History keeps everything), then refreshes. */
+    fun clearActivity() { viewModelScope.launch { client?.clearActivity(); refreshOnce() } }
+
     // ---- LinkedIn (read and sorted by the kiosk) ----
     suspend fun linkedIn(): app.sidecarmonitor.data.LinkedInInfo? = runCatching { client?.linkedIn() }.getOrNull()
     suspend fun linkedInLabel(id: String, signal: Boolean): String? = client?.linkedInLabel(id, signal) ?: "Not connected"

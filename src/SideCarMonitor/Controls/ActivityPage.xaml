@@ -30,6 +30,10 @@
                 <TextBlock x:Name="SubtitleText" FontSize="{StaticResource FontCaption}" Foreground="{StaticResource MutedText}" />
             </StackPanel>
             <StackPanel x:Name="Filters" Grid.Column="2" Orientation="Horizontal" Spacing="{StaticResource SmallGap}">
+                <Button x:Name="ClearButton" Tag="-" Content="Clear" Click="Clear_Click" FontSize="{StaticResource FontBody}" Height="{StaticResource TouchTarget}"
+                        Padding="{StaticResource PanelPadding}" Background="{StaticResource TileCrimson}" Foreground="White" />
+                <Button x:Name="HistoryButton" Tag="-" Content="History" Click="History_Click" FontSize="{StaticResource FontBody}" Height="{StaticResource TouchTarget}"
+                        Padding="{StaticResource PanelPadding}" Margin="0,0,16,0" />
                 <Button Tag="all" Content="All" Click="Filter_Click" FontSize="{StaticResource FontBody}" Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}" />
                 <Button Tag="camera" Content="Cameras" Click="Filter_Click" FontSize="{StaticResource FontBody}" Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}" />
                 <Button Tag="door" Content="Doors" Click="Filter_Click" FontSize="{StaticResource FontBody}" Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}" />

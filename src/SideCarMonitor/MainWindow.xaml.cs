@@ -86,6 +86,7 @@ public sealed partial class MainWindow : Window
         LoadSavedEvents();
         ActivityView.Initialize(_events);
         ActivityView.HomeRequested += ShowHome;
+        ActivityView.Cleared += () => { SaveEvents(); RebuildShownEvents(); UpdateActivitySummary(); };
         ActivityView.WatchLiveRequested += i => { ActivityView.Visibility = Visibility.Collapsed; ShowCameras(); if (i < _tiles.Count) { _focused = _tiles[i]; LayoutTiles(); } };
         EventList.ItemsSource = _shownEvents;
         _events.CollectionChanged += (_, _) => { RebuildShownEvents(); UpdateActivitySummary(); };
@@ -838,7 +839,7 @@ public sealed partial class MainWindow : Window
         RebuildShownEvents();
     }
 
-    private bool ShowInFilter(MotionEvent ev) => _activityFilter switch
+    private bool ShowInFilter(MotionEvent ev) => !ev.Cleared && _activityFilter switch
     {
         "camera" => ev.IsCamera,
         "door" => ev.Source == "door",
@@ -1212,7 +1213,7 @@ public sealed partial class MainWindow : Window
         CamerasTileValue.Text = _tiles.Count == 0 ? "Set up" : $"{live}/{_tiles.Count}";
         CamerasTileDetail.Text = _tiles.Count == 0 ? "" : "live";
 
-        var today = _events.Count(e => e.Start.Date == DateTime.Today);
+        var today = _events.Count(e => e.Start.Date == DateTime.Today && !e.Cleared);
         var active = _events.FirstOrDefault(e => e.IsActive);
         ActivityTileValue.Text = today.ToString();
         ActivityTileDetail.Text = active is not null ? $"{active.Label} at {active.CameraName}"
@@ -1265,6 +1266,11 @@ public sealed partial class MainWindow : Window
             _gateway.Home = _home;
             _gateway.LinkedIn = _linkedIn;
             _gateway.Reminders = _reminders;
+            _gateway.ClearActivity = () => DispatcherQueue.TryEnqueue(() =>
+            {
+                foreach (var ev in _events) ev.Cleared = true;
+                SaveEvents(); RebuildShownEvents(); UpdateActivitySummary(); ActivityView.Show();
+            });
             await _gateway.StartAsync();
         }
         catch (Exception ex)
@@ -1281,10 +1287,10 @@ public sealed partial class MainWindow : Window
         weather = _tempest is null ? null : LocalWeatherForAgent(),
         weatherSummary = $"{WeatherTileValue.Text} {WeatherTileDetail.Text}".Trim(),
         cameras = _cameraConfigs.Select((c, i) => new { index = i, name = c.Name, live = i < _tiles.Count && _tiles[i].IsPlaying }),
-        activity = _events.Take(30).Select(e => new
+        activity = _events.Take(80).Select(e => new
         {
             id = e.Id, camera = e.CameraName, kind = e.Label, start = e.Start, active = e.IsActive, duration = e.DurationText,
-            ai = e.VerdictText, attention = e.Verdict?.AttentionLabel ?? (e.Alert ? "Look now" : ""), alert = e.Alert, source = e.Source,
+            ai = e.VerdictText, attention = e.Verdict?.AttentionLabel ?? (e.Alert ? "Look now" : ""), alert = e.Alert, source = e.Source, cleared = e.Cleared,
             snapshots = e.Snapshots.ToArray(),
         }),
     };

@@ -36,7 +36,7 @@ public static partial class EventStore
     }
 
     private sealed record Saved(string Id, string Camera, int CameraIndex, DetectionKind Kinds, DateTime Start, DateTime? End, EventVerdict? Verdict = null,
-        string? Source = null, string? Label = null, string? Glyph = null, string? Detail = null, bool Alert = false);
+        string? Source = null, string? Label = null, string? Glyph = null, string? Detail = null, bool Alert = false, bool Cleared = false);
 
     /// <summary>Loads saved events (newest first) whose start is within the retention period.</summary>
     public static List<MotionEvent> Load(TimeSpan retention)
@@ -51,6 +51,7 @@ public static partial class EventStore
             {
                 var ev = new MotionEvent(s.Camera, s.CameraIndex, s.Kinds, s.Start, s.Id) { Source = s.Source ?? "camera" };
                 if (!ev.IsCamera) ev.RestoreHouse(s.Label, s.Glyph, s.Detail, s.Alert);
+                ev.Cleared = s.Cleared;
                 // An event still active when the kiosk closed: we don't know when it ended.
                 ev.End = s.End ?? s.Start;
                 ev.Verdict = s.Verdict;
@@ -75,7 +76,7 @@ public static partial class EventStore
         {
             System.IO.Directory.CreateDirectory(Directory);
             var list = events.Select(e => new Saved(e.Id, e.CameraName, e.CameraIndex, e.Kinds, e.Start, e.End, e.Verdict,
-                e.Source, e.CustomLabel, e.CustomGlyph, e.IsCamera ? null : e.Detail, !e.IsCamera && e.Alert)).ToList();
+                e.Source, e.CustomLabel, e.CustomGlyph, e.IsCamera ? null : e.Detail, !e.IsCamera && e.Alert, e.Cleared)).ToList();
             var tmp = IndexPath + ".tmp";
             File.WriteAllText(tmp, JsonSerializer.Serialize(list, Json));
             File.Move(tmp, IndexPath, overwrite: true);

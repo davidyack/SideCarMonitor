@@ -21,6 +21,19 @@ public sealed partial class ActivityPage : UserControl
     private MotionEvent? _selected;
 
     public event Action? HomeRequested;
+    /// <summary>You tapped Clear: the window saves the events.</summary>
+    public event Action? Cleared;
+    private bool _history;
+
+    private void Clear_Click(object sender, RoutedEventArgs e)
+    {
+        foreach (var ev in _all ?? []) ev.Cleared = true;
+        _history = false;
+        Rebuild();
+        Cleared?.Invoke();
+    }
+
+    private void History_Click(object sender, RoutedEventArgs e) { _history = !_history; Rebuild(); }
     /// <summary>Camera index to show live.</summary>
     public event Action<int>? WatchLiveRequested;
 
@@ -50,7 +63,7 @@ public sealed partial class ActivityPage : UserControl
         else Rebuild();
     }
 
-    private bool Matches(MotionEvent ev) => _filter switch
+    private bool Matches(MotionEvent ev) => (_history || !ev.Cleared) && _filter switch
     {
         "camera" => ev.IsCamera,
         "door" => ev.Source == "door",
@@ -63,8 +76,10 @@ public sealed partial class ActivityPage : UserControl
     {
         _shown.Clear();
         foreach (var ev in _all ?? []) if (Matches(ev)) _shown.Add(ev);
-        foreach (var b in Filters.Children.OfType<Button>())
+        foreach (var b in Filters.Children.OfType<Button>().Where(b => (string)b.Tag != "-"))
             b.Background = (Brush)Application.Current.Resources[(string)b.Tag == _filter ? "TileCobalt" : "PanelBackground"];
+        HistoryButton.Background = (Brush)Application.Current.Resources[_history ? "TileAmber" : "PanelBackground"];
+        HistoryButton.Content = _history ? "History: on" : "History";
         UpdateSubtitle();
     }
 
@@ -73,7 +88,9 @@ public sealed partial class ActivityPage : UserControl
         EmptyText.Visibility = _shown.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         var today = (_all ?? []).Count(e => e.Start.Date == DateTime.Today);
         var alerts = (_all ?? []).Count(e => e.Start.Date == DateTime.Today && e.Alert);
-        SubtitleText.Text = $"{today} today" + (alerts > 0 ? $" · {alerts} worth a look" : "");
+        var hidden = (_all ?? []).Count(e => e.Cleared);
+        SubtitleText.Text = _history ? $"History: everything from the last 7 days ({hidden} cleared)"
+            : $"{today} today" + (alerts > 0 ? $" \u00B7 {alerts} worth a look" : "") + (hidden > 0 ? $" \u00B7 {hidden} cleared" : "");
     }
 
     private void Filter_Click(object sender, RoutedEventArgs e)
@@ -95,10 +112,10 @@ public sealed partial class ActivityPage : UserControl
         _selected = ev;
         PickText.Visibility = Visibility.Collapsed;
         DetailScroll.Visibility = Visibility.Visible;
-        DetailTitle.Text = $"{ev.Label} · {ev.CameraName}";
+        DetailTitle.Text = $"{ev.Label} \u00B7 {ev.CameraName}";
         DetailWhen.Text = ev.IsCamera
-            ? $"{ev.Start:dddd h:mm:ss tt} · lasted {ev.DurationText}"
-            : $"{ev.Start:dddd h:mm:ss tt}" + (ev.Detail.Length > 0 ? $" · {ev.Detail}" : "");
+            ? $"{ev.Start:dddd h:mm:ss tt} \u00B7 lasted {ev.DurationText}"
+            : $"{ev.Start:dddd h:mm:ss tt}" + (ev.Detail.Length > 0 ? $" \u00B7 {ev.Detail}" : "");
         DetailAi.Text = ev.IsCamera ? (ev.VerdictText.Length > 0 ? $"AI: {ev.VerdictText}" : "") : (ev.Alert ? "Worth a look" : "");
         WatchLiveButton.Visibility = ev.IsCamera && ev.CameraIndex >= 0 ? Visibility.Visible : Visibility.Collapsed;
 

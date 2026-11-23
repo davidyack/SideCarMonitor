@@ -56,6 +56,8 @@ data class ActivityItem(
     /** "camera", "door" (doors, locks, garage, alarms), "house" (automations) or "sidecar" (SideCar's own actions). */
     val source: String = "camera",
     val alert: Boolean = false,
+    /** Cleared from the feed (still shown in History). */
+    val cleared: Boolean = false,
 )
 
 @Serializable
@@ -203,6 +205,8 @@ class SideCarClient(private val pairing: Pairing) {
     suspend fun linkedInRefresh(url: String) = postJson("/api/linkedin/person/refresh", buildJsonObject { put("url", url) })
 
     /** Reminders that are due now (they nag until handled). */
+    suspend fun clearActivity() = postJson("/api/activity/clear", buildJsonObject { })
+
     suspend fun dueReminders(): List<ReminderItem> = withContext(Dispatchers.IO) {
         call(Request.Builder().url("$base/api/reminders").build()).use {
             json.decodeFromString<RemindersInfo>(it.body.string()).due

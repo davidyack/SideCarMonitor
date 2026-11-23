@@ -67,6 +67,9 @@ public sealed class MotionEvent : INotifyPropertyChanged
     }
 
     public string? CustomLabel => _customLabel;
+
+    /// <summary>You cleared it from the feed (still in History).</summary>
+    public bool Cleared { get; set; }
     public string? CustomGlyph => _customGlyph;
 
     private readonly List<int> _snapshots = [];
