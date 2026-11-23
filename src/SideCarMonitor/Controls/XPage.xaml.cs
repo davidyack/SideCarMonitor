@@ -120,18 +120,12 @@ public sealed partial class XPage : UserControl
         }
         else
         {
-            buttons.Children.Add(Chip(p.IsSignal ? "Noise" : "Not noise", p.IsSignal ? "AlertBrush" : "TileEmerald", () => _feed!.Label(p.Id, !p.IsSignal)));
-            buttons.Children.Add(Chip(p.Saved ? "Saved ✓" : "Save", "TileTeal", async () =>
-            {
-                if (p.Saved) return;
-                var err = await Task.Run(() => _feed!.SaveAsync(p.Id));
-                _note = err is null ? "Saved (bookmarked on X)" : $"Couldn't save: {err}";
-                Render(true);
-            }));
-            buttons.Children.Add(Chip(p.RepliesInsight.Length > 0 ? "Replies ✓" : $"Replies ({p.Replies})", "TileMauve", () => { _repliesFor = p.Id; RenderReplies(p); }));
-            buttons.Children.Add(Chip("Grok", "TileInk", () => Open(GrokLink(p))));
-            buttons.Children.Add(Chip("Unfollow", "PanelBorder", () => { _confirmUnfollow = p.AuthorId; Render(true); }));
-            buttons.Children.Add(Chip("Open", "PanelBorder", () => Open(p.Link)));
+            // One big Actions button; the actions open as large touch buttons.
+            buttons.Children.Add(ActionsButton(p));
+            if (p.Saved) buttons.Children.Add(Small("Saved \u2713", "AccentText"));
+            if (p.RepliesInsight.Length > 0) buttons.Children.Add(Small("Analyzed \u2713", "AccentText"));
+            if (p.YourLabel is not null) buttons.Children.Add(Small(p.YourLabel == "signal" ? "You: not noise" : "You: noise"));
+            foreach (var t in buttons.Children.OfType<TextBlock>()) { t.VerticalAlignment = VerticalAlignment.Center; t.Margin = new Thickness(8, 0, 0, 0); }
         }
         body.Children.Add(buttons);
         return new Border { Child = body, Padding = Res<Thickness>("PanelPadding"), CornerRadius = Res<CornerRadius>("SmallCorner"), Background = Res<Brush>("PanelBackground") };
@@ -140,9 +134,51 @@ public sealed partial class XPage : UserControl
     /// <summary>Opens Grok on X (your own account, private, free) with a prompt about this post pre-filled.</summary>
     private string GrokLink(XItem p)
     {
-        var prompt = $"Analyze this post: what it's really saying, whether it's credible, and what it means for someone focused on " +
-                     $"{_feed?.Interests ?? "startups, AI, Microsoft and product management"}. {p.Link}";
+        var prompt = $"Read this X post AND its replies: {p.Link} . Be brief, at most 6 bullets of under 20 words each: the gist; " +
+                     $"credibility; how the replies reacted and the main pushback; the best insight from the replies (with @handle); " +
+                     $"why it matters for someone focused on {_feed?.Interests ?? "startups, AI, Microsoft and product management"}; " +
+                     "one suggested action if any.";
         return "https://x.com/i/grok?text=" + Uri.EscapeDataString(prompt);
+    }
+
+    private Button ActionsButton(XItem p)
+    {
+        var panel = new StackPanel { Spacing = 8, MinWidth = Res<double>("TouchTarget") * 4.5 };
+        var flyout = new Flyout { Content = panel, Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.Right };
+        Button Big(string glyph, string text, string brush, Action onClick)
+        {
+            var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+            content.Children.Add(new FontIcon { Glyph = glyph, FontSize = Font("FontIcon") });
+            content.Children.Add(new TextBlock { Text = text, VerticalAlignment = VerticalAlignment.Center });
+            var b = new Button
+            {
+                Content = content, FontSize = Font("FontBody"), Height = Res<double>("TouchTarget"), HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Left, Padding = Res<Thickness>("PanelPadding"), CornerRadius = Res<CornerRadius>("SmallCorner"),
+                Background = Res<Brush>(brush), Foreground = new SolidColorBrush(Microsoft.UI.Colors.White),
+            };
+            b.Click += (_, _) => { flyout.Hide(); onClick(); };
+            return b;
+        }
+        panel.Children.Add(Big(p.IsSignal ? "\uE7BA" : "\uE73E", p.IsSignal ? "Noise" : "Not noise", p.IsSignal ? "AlertBrush" : "TileEmerald", () => _feed!.Label(p.Id, !p.IsSignal)));
+        panel.Children.Add(Big("\uE9D9", p.RepliesInsight.Length > 0 ? "Analysis" : $"Analyze ({p.Replies} replies)", "TileMauve", () => { _repliesFor = p.Id; RenderReplies(p); }));
+        panel.Children.Add(Big("\uE8BD", "Ask Grok", "TileInk", () => Open(GrokLink(p))));
+        panel.Children.Add(Big("\uE734", p.Saved ? "Saved \u2713" : "Save", "TileTeal", async () =>
+        {
+            if (p.Saved) return;
+            var err = await Task.Run(() => _feed!.SaveAsync(p.Id));
+            _note = err is null ? "Saved (bookmarked on X)" : $"Couldn't save: {err}";
+            Render(true);
+        }));
+        panel.Children.Add(Big("\uE8F8", $"Unfollow @{p.Username}", "PanelBorder", () => { _confirmUnfollow = p.AuthorId; Render(true); }));
+        panel.Children.Add(Big("\uE8A7", "Open on X", "PanelBorder", () => Open(p.Link)));
+
+        var actions = new Button
+        {
+            Content = "Actions \u25BE", FontSize = Font("FontBody"), Height = Res<double>("TouchTarget"), Padding = new Thickness(28, 6, 28, 6),
+            CornerRadius = Res<CornerRadius>("SmallCorner"), Background = Res<Brush>("TileCobalt"), Foreground = new SolidColorBrush(Microsoft.UI.Colors.White),
+            Flyout = flyout,
+        };
+        return actions;
     }
 
     private static void Open(string url) { try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true }); } catch { } }
@@ -197,16 +233,33 @@ public sealed partial class XPage : UserControl
     private async void RenderReplies(XItem p)
     {
         SidePanel.Children.Clear();
-        var back = Chip("← Back", "PanelBorder", () => { _repliesFor = null; RenderSide(); });
-        SidePanel.Children.Add(back);
-        SidePanel.Children.Add(Heading($"Replies to @{p.Username}"));
-        SidePanel.Children.Add(Small(Trim(p.Text, 300)));
-        var insight = new TextBlock { FontSize = Font("FontBody"), TextWrapping = TextWrapping.Wrap, Foreground = Res<Brush>("AccentText") };
-        SidePanel.Children.Add(insight);
-        if (p.RepliesInsight.Length > 0) { insight.Text = p.RepliesInsight; SidePanel.Children.Add(Small($"Analyzed {p.RepliesAt:ddd h:mm tt}")); return; }
-        insight.Text = $"Reading up to 50 replies (about $0.25) and pulling out the insights…";
-        try { var text = await Task.Run(() => _feed!.AnalyzeRepliesAsync(p.Id)); if (_repliesFor == p.Id) insight.Text = text; }
-        catch (Exception ex) { insight.Text = $"Couldn't analyze: {ex.Message}"; }
+        SidePanel.Children.Add(Chip("\u2190 Back", "PanelBorder", () => { _repliesFor = null; RenderSide(); }));
+        SidePanel.Children.Add(Heading($"Analysis: @{p.Username}"));
+        SidePanel.Children.Add(new TextBlock { Text = p.Text, FontSize = Font("FontCaption"), Foreground = Res<Brush>("MutedText"), TextWrapping = TextWrapping.Wrap, MaxLines = 2, TextTrimming = TextTrimming.WordEllipsis });
+        var rows = new StackPanel { Spacing = 10 };
+        SidePanel.Children.Add(rows);
+        void Show(string text)
+        {
+            rows.Children.Clear();
+            foreach (var line in text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                var colon = line.IndexOf(':');
+                var label = colon is > 0 and < 16 ? line[..colon] : "";
+                var tb = new TextBlock { FontSize = Font("FontBody"), TextWrapping = TextWrapping.Wrap };
+                if (label.Length > 0)
+                {
+                    tb.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = label, FontWeight = FontWeights.SemiBold, Foreground = Res<Brush>("AccentText") });
+                    tb.Inlines.Add(new Microsoft.UI.Xaml.Documents.LineBreak());
+                    tb.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = line[(colon + 1)..].Trim() });
+                }
+                else tb.Text = line;
+                rows.Children.Add(tb);
+            }
+        }
+        if (p.RepliesInsight.Length > 0) { Show(p.RepliesInsight); SidePanel.Children.Add(Small($"Post and {p.Replies} replies analyzed {p.RepliesAt:ddd h:mm tt}")); return; }
+        Show("Reading the post and up to 50 replies (about $0.25)\u2026");
+        try { var text = await Task.Run(() => _feed!.AnalyzeRepliesAsync(p.Id)); if (_repliesFor == p.Id) Show(text); }
+        catch (Exception ex) { Show($"Couldn't analyze: {ex.Message}"); }
     }
 
     private static string Trim(string s, int max) => s.Length <= max ? s : s[..max] + "…";
