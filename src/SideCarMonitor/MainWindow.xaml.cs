@@ -80,6 +80,7 @@ public sealed partial class MainWindow : Window
         PlaceOnKioskMonitor();
 
         SystemEvents.Reported += OnSystemEvent;
+        TrackTouches();
         LoadSavedEvents();
         ActivityView.Initialize(_events);
         ActivityView.HomeRequested += ShowHome;
@@ -290,12 +291,14 @@ public sealed partial class MainWindow : Window
             await EventStore.SaveSnapshotAsync(ev.Id, n, jpeg);
             ev.AddSnapshot(n); // back on the UI thread after the awaits
             SaveEvents();
+            ShowEventPopup(ev); // shows the picture now; the analysis fills in below when it arrives
             if (_judge is not null)
             {
                 // Ask the decision model what's in the picture (the later picture wins).
                 using var judgeCts = new CancellationTokenSource(TimeSpan.FromMinutes(3));
                 ev.Verdict = await _judge.JudgeAsync(jpeg, ev.CameraName, CameraWatches(ev), judgeCts.Token) ?? ev.Verdict;
                 SaveEvents();
+                if (_popupEvent == ev) FillEventPopup(ev);
             }
         }
         catch (Exception ex)
@@ -323,6 +326,80 @@ public sealed partial class MainWindow : Window
 
     private readonly ObservableCollection<MotionEvent> _shownEvents = [];
     private readonly HashSet<int> _cameraWasDown = [];
+
+    // ---- Camera event popup --------------------------------------------------------------------
+    // When a camera event's picture arrives and the kiosk is idle (nobody touched it for a minute and the
+    // assistant isn't in use), show the picture and the AI's analysis for 30 s, with Watch live.
+
+    private static readonly TimeSpan IdleBeforePopup = TimeSpan.FromSeconds(60);
+    private const int PopupSeconds = 30;
+    private DateTime _lastTouch = DateTime.MinValue;
+    private MotionEvent? _popupEvent;
+    private DispatcherQueueTimer? _popupTimer;
+    private int _popupLeft;
+
+    private void TrackTouches()
+    {
+        if (Content is UIElement root)
+            root.AddHandler(UIElement.PointerPressedEvent,
+                new Microsoft.UI.Xaml.Input.PointerEventHandler((_, _) => _lastTouch = DateTime.Now), handledEventsToo: true);
+    }
+
+    private bool KioskIsBusy =>
+        DateTime.Now - _lastTouch < IdleBeforePopup || Assistant.IsBusy || PairingPage.Visibility == Visibility.Visible;
+
+    private void ShowEventPopup(MotionEvent ev)
+    {
+        if (!ev.IsCamera || ev.Snapshots.Count == 0) return;
+        // Already showing one? Switch to the newer event. Otherwise only when nobody is using the kiosk.
+        if (EventPopup.Visibility != Visibility.Visible && KioskIsBusy) return;
+        _popupEvent = ev;
+        FillEventPopup(ev);
+        EventPopup.Visibility = Visibility.Visible;
+        _popupLeft = PopupSeconds;
+        EventPopupCountdown.Value = _popupLeft;
+        if (_popupTimer is null)
+        {
+            _popupTimer = DispatcherQueue.CreateTimer();
+            _popupTimer.Interval = TimeSpan.FromSeconds(1);
+            _popupTimer.Tick += (_, _) =>
+            {
+                EventPopupCountdown.Value = --_popupLeft;
+                if (_popupLeft <= 0) CloseEventPopup();
+            };
+        }
+        _popupTimer.Start();
+    }
+
+    private void FillEventPopup(MotionEvent ev)
+    {
+        EventPopupTitle.Text = $"{ev.Label} \u00B7 {ev.CameraName}";
+        EventPopupWhen.Text = ev.Start.ToString("dddd h:mm:ss tt");
+        EventPopupAi.Text = ev.Verdict is { } v ? $"AI: {v.Summary}" : "Analyzing\u2026";
+        if (ev.Snapshots.Count > 0 && EventStore.SnapshotPath(ev.Id, ev.Snapshots[^1]) is { } path)
+            EventPopupImage.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(path)) { DecodePixelWidth = 1400 };
+    }
+
+    private void CloseEventPopup()
+    {
+        _popupTimer?.Stop();
+        EventPopup.Visibility = Visibility.Collapsed;
+        EventPopupImage.Source = null;
+        _popupEvent = null;
+    }
+
+    private void EventPopupDismiss_Click(object sender, RoutedEventArgs e) => CloseEventPopup();
+    private void EventPopupScrim_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e) => CloseEventPopup();
+    private void EventPopupCard_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e) => e.Handled = true; // taps on the card don't dismiss
+
+    private void EventPopupLive_Click(object sender, RoutedEventArgs e)
+    {
+        var index = _popupEvent?.CameraIndex ?? -1;
+        CloseEventPopup();
+        if (index < 0) return;
+        ShowCameras();
+        if (index < _tiles.Count) { _focused = _tiles[index]; LayoutTiles(); }
+    }
 
     private void OnSystemEvent(string what, string detail, bool alert) => DispatcherQueue.TryEnqueue(() =>
         AddFeedEvent(MotionEvent.House("system", "SideCar", what, alert ? "\uE7BA" : "\uE9D9", DateTime.Now, detail, alert)));

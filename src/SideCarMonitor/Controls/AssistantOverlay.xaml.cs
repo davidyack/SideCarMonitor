@@ -55,6 +55,9 @@ public sealed partial class AssistantOverlay : UserControl
     private TaskCompletionSource<string>? _replyDone;
     private State _state;
 
+    /// <summary>True while the panel is open or the assistant is listening, thinking or speaking.</summary>
+    public bool IsBusy => _state != State.Idle || Panel.Visibility == Visibility.Visible;
+
     public AssistantOverlay()
     {
         InitializeComponent();

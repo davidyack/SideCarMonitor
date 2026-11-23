@@ -457,6 +457,46 @@
             </StackPanel>
         </Grid>
 
+        <!-- Camera event popup: shown for 30 s when the kiosk is idle; tap outside or Dismiss to close -->
+        <Grid x:Name="EventPopup" Visibility="Collapsed" Background="#B3000000" Tapped="EventPopupScrim_Tapped">
+            <Border x:Name="EventPopupCard" MaxWidth="1400" Margin="{StaticResource PagePadding}" VerticalAlignment="Center"
+                    Background="{StaticResource PanelBackground}" BorderBrush="{StaticResource PanelBorder}" BorderThickness="1"
+                    CornerRadius="{StaticResource Corner}" Padding="{StaticResource PanelPadding}" Tapped="EventPopupCard_Tapped">
+                <Grid RowSpacing="{StaticResource Gap}" ColumnSpacing="{StaticResource Gap}">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <StackPanel>
+                        <TextBlock x:Name="EventPopupTitle" FontSize="{StaticResource FontTitle}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <TextBlock x:Name="EventPopupWhen" FontSize="{StaticResource FontBody}" Foreground="{StaticResource MutedText}" />
+                    </StackPanel>
+                    <Image x:Name="EventPopupImage" Grid.Row="1" Stretch="Uniform" MaxHeight="560" />
+                    <TextBlock x:Name="EventPopupAi" Grid.Row="2" FontSize="{StaticResource FontBody}" Foreground="{StaticResource AccentText}" TextWrapping="Wrap" />
+                    <Grid Grid.Row="3" ColumnSpacing="{StaticResource Gap}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Button Click="EventPopupLive_Click" FontSize="{StaticResource FontBody}" Height="{StaticResource TouchTarget}"
+                                Padding="{StaticResource PanelPadding}" Background="{StaticResource TileCobalt}" Foreground="White"
+                                CornerRadius="{StaticResource SmallCorner}">
+                            <StackPanel Orientation="Horizontal" Spacing="{StaticResource Gap}">
+                                <FontIcon Glyph="&#xE714;" FontSize="{StaticResource FontIcon}" />
+                                <TextBlock Text="Watch live" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                        <ProgressBar x:Name="EventPopupCountdown" Grid.Column="1" Maximum="30" VerticalAlignment="Center" Margin="12,0" />
+                        <Button Grid.Column="2" Content="Dismiss" Click="EventPopupDismiss_Click" FontSize="{StaticResource FontBody}"
+                                Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}" CornerRadius="{StaticResource SmallCorner}" />
+                    </Grid>
+                </Grid>
+            </Border>
+        </Grid>
+
         <!-- Voice assistant: floating mic button (lower right) over every page -->
         <controls:AssistantOverlay x:Name="Assistant" />
     </Grid>
