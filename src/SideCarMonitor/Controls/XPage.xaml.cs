@@ -129,11 +129,20 @@ public sealed partial class XPage : UserControl
                 Render(true);
             }));
             buttons.Children.Add(Chip(p.RepliesInsight.Length > 0 ? "Replies ✓" : $"Replies ({p.Replies})", "TileMauve", () => { _repliesFor = p.Id; RenderReplies(p); }));
+            buttons.Children.Add(Chip("Grok", "TileInk", () => Open(GrokLink(p))));
             buttons.Children.Add(Chip("Unfollow", "PanelBorder", () => { _confirmUnfollow = p.AuthorId; Render(true); }));
             buttons.Children.Add(Chip("Open", "PanelBorder", () => Open(p.Link)));
         }
         body.Children.Add(buttons);
         return new Border { Child = body, Padding = Res<Thickness>("PanelPadding"), CornerRadius = Res<CornerRadius>("SmallCorner"), Background = Res<Brush>("PanelBackground") };
+    }
+
+    /// <summary>Opens Grok on X (your own account, private, free) with a prompt about this post pre-filled.</summary>
+    private string GrokLink(XItem p)
+    {
+        var prompt = $"Analyze this post: what it's really saying, whether it's credible, and what it means for someone focused on " +
+                     $"{_feed?.Interests ?? "startups, AI, Microsoft and product management"}. {p.Link}";
+        return "https://x.com/i/grok?text=" + Uri.EscapeDataString(prompt);
     }
 
     private static void Open(string url) { try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true }); } catch { } }
