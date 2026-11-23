@@ -119,6 +119,9 @@ public sealed class CameraConfig
     public bool UseHttps { get; set; }
     public string? RtspUrl { get; set; }
 
+    /// <summary>What this camera looks at, for the AI labels, e.g. "the fenced dog yard behind the house".</summary>
+    public string? Watches { get; set; }
+
     /// <summary>"always" streams continuously; "onMotion" only streams while a detection is active
     /// (use for battery cameras so they can sleep).</summary>
     public string LiveMode { get; set; } = "always";

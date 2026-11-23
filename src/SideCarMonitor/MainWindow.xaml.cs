@@ -185,16 +185,19 @@ public sealed partial class MainWindow : Window
         _ = JudgeUnlabeledAsync();
     }
 
+    private string? CameraWatches(MotionEvent ev) =>
+        ev.CameraIndex < _cameraConfigs.Count ? _cameraConfigs[ev.CameraIndex].Watches : null;
+
     /// <summary>Labels saved event pictures that haven't been judged yet (e.g. from before the decision model was set up).</summary>
     private async Task JudgeUnlabeledAsync()
     {
         if (_judge is null) return;
-        foreach (var ev in _events.Where(e => e.Verdict is null && e.Snapshots.Count > 0).Take(10).ToList())
+        foreach (var ev in _events.Where(e => (e.Verdict?.Version ?? 0) < EventVerdict.CurrentVersion && e.Snapshots.Count > 0).Take(20).ToList())
         {
             try
             {
                 var jpeg = await File.ReadAllBytesAsync(EventStore.SnapshotPath(ev.Id, ev.Snapshots[^1])!);
-                ev.Verdict = await _judge.JudgeAsync(jpeg, ev.CameraName, CancellationToken.None);
+                ev.Verdict = await _judge.JudgeAsync(jpeg, ev.CameraName, CameraWatches(ev), CancellationToken.None);
             }
             catch (Exception ex)
             {
@@ -240,7 +243,7 @@ public sealed partial class MainWindow : Window
             {
                 // Ask the decision model what's in the picture (the later picture wins).
                 using var judgeCts = new CancellationTokenSource(TimeSpan.FromMinutes(3));
-                ev.Verdict = await _judge.JudgeAsync(jpeg, ev.CameraName, judgeCts.Token) ?? ev.Verdict;
+                ev.Verdict = await _judge.JudgeAsync(jpeg, ev.CameraName, CameraWatches(ev), judgeCts.Token) ?? ev.Verdict;
                 SaveEvents();
             }
         }
@@ -589,7 +592,7 @@ public sealed partial class MainWindow : Window
         activity = _events.Take(30).Select(e => new
         {
             id = e.Id, camera = e.CameraName, kind = e.Label, start = e.Start, active = e.IsActive, duration = e.DurationText,
-            ai = e.VerdictText, attention = e.Verdict?.AttentionLabel ?? "",
+            ai = e.VerdictText, attention = e.Verdict?.AttentionLabel ?? "", alert = e.Verdict?.Alert ?? false,
             snapshots = e.Snapshots.ToArray(),
         }),
     };
