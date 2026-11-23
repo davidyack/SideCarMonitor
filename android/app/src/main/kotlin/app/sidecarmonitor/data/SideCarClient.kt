@@ -55,6 +55,24 @@ data class ActivityItem(
     val attention: String = "",
 )
 
+@Serializable
+data class HomeDevice(val name: String, val domain: String, val state: String, val area: String, val on: Boolean)
+
+@Serializable
+data class HomeScript(val tool: String, val name: String)
+
+/** The kiosk's Home Assistant view: devices by room, scripts, recent actions, and whether SideCar's control is paused. */
+@Serializable
+data class HomeInfo(
+    val available: Boolean = false,
+    val paused: String? = null,
+    val lightsOn: Int = 0,
+    val lights: Int = 0,
+    val devices: List<HomeDevice> = emptyList(),
+    val scripts: List<HomeScript> = emptyList(),
+    val recent: List<String> = emptyList(),
+)
+
 /** One message from the agent over the chat WebSocket. */
 data class ChatEvent(val type: String, val id: String?, val text: String?, val name: String?, val message: String?)
 
@@ -106,6 +124,24 @@ class SideCarClient(private val pairing: Pairing) {
     suspend fun snapshot(index: Int): ByteArray = withContext(Dispatchers.IO) {
         call(Request.Builder().url("$base/api/cameras/$index/snapshot").build()).use { it.body.bytes() }
     }
+
+    suspend fun home(): HomeInfo = withContext(Dispatchers.IO) {
+        call(Request.Builder().url("$base/api/home").build()).use { json.decodeFromString(it.body.string()) }
+    }
+
+    /** Posts a small JSON body to the kiosk; returns the error text, or null when it worked. */
+    private suspend fun postJson(path: String, body: kotlinx.serialization.json.JsonObject): String? = withContext(Dispatchers.IO) {
+        val req = Request.Builder().url("$base$path")
+            .post(body.toString().toRequestBody("application/json".toMediaType())).build()
+        runCatching { call(req).use { null } }.getOrElse { it.message ?: "Failed" }
+    }
+
+    suspend fun homeSet(d: HomeDevice, on: Boolean) =
+        postJson("/api/home/set", buildJsonObject { put("name", d.name); put("domain", d.domain); put("on", on) })
+
+    suspend fun homeScript(s: HomeScript) = postJson("/api/home/script", buildJsonObject { put("tool", s.tool) })
+
+    suspend fun homeResume() = postJson("/api/home/resume", buildJsonObject { })
 
     /** A picture the kiosk took when an activity event happened. */
     suspend fun eventSnapshot(id: String, n: Int): ByteArray = withContext(Dispatchers.IO) {

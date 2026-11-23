@@ -28,6 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Notifications
@@ -70,7 +71,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
-enum class Screen { Home, Cameras, Weather, Activity, Tasks, Week, Settings }
+enum class Screen { Home, Cameras, Weather, Activity, Tasks, Week, House, Settings }
 
 private fun JsonObject?.str(key: String): String? =
     this?.get(key)?.let { runCatching { it.jsonPrimitive.content }.getOrNull() }?.takeIf { it != "null" }
@@ -101,10 +102,14 @@ fun HomeScreen(state: UiState, onOpen: (Screen) -> Unit, onTalk: () -> Unit) {
                 icon = Icons.Filled.Thermostat, value = weather.str("temperature") ?: "--",
                 detail = weather.str("condition") ?: "", label = "Weather")
         }
-        Tile(SideCarColors.Cobalt, Modifier.fillMaxWidth().height(150.dp), onClick = { onOpen(Screen.Cameras) },
-            icon = Icons.Filled.Videocam,
-            value = if (cams.isEmpty()) "--" else "${cams.count { it.live }}/${cams.size}",
-            detail = "live", label = "Cameras")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Tile(SideCarColors.Cobalt, Modifier.weight(2f).height(150.dp), onClick = { onOpen(Screen.Cameras) },
+                icon = Icons.Filled.Videocam,
+                value = if (cams.isEmpty()) "--" else "${cams.count { it.live }}/${cams.size}",
+                detail = "live", label = "Cameras")
+            Tile(SideCarColors.Teal, Modifier.weight(1f).height(150.dp), onClick = { onOpen(Screen.House) },
+                icon = Icons.Filled.Home, value = "", detail = "Lights, scripts", label = "House")
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Tile(if (activeNow != null) SideCarColors.Alert else SideCarColors.Crimson, Modifier.weight(1f).aspectRatio(1f),
                 onClick = { onOpen(Screen.Activity) }, icon = Icons.Filled.Notifications,

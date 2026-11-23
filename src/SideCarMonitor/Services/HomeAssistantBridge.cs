@@ -249,19 +249,19 @@ public sealed class HomeAssistantBridge : IDisposable
     }
 
     /// <summary>Turns a device on/off (opens/closes blinds) because you tapped it.</summary>
-    public async Task<string?> UserSetAsync(Device d, bool on)
+    public async Task<string?> UserSetAsync(Device d, bool on, string by = "user (kiosk)")
     {
         var tool = on ? "intent__HassTurnOn" : "intent__HassTurnOff";
         var args = new JsonObject { ["name"] = d.Name, ["domain"] = new JsonArray(d.Domain) };
-        return await UserCallAsync(tool, args, $"{(on ? "on" : "off")}: {d.Name}");
+        return await UserCallAsync(tool, args, $"{(on ? "on" : "off")}: {d.Name}", by);
     }
 
-    public Task<string?> UserRunScriptAsync(Script s) => UserCallAsync(s.Tool, new JsonObject(), $"ran {s.Name}");
+    public Task<string?> UserRunScriptAsync(Script s, string by = "user (kiosk)") => UserCallAsync(s.Tool, new JsonObject(), $"ran {s.Name}", by);
 
     /// <returns>null when it worked, else the error.</returns>
-    private async Task<string?> UserCallAsync(string tool, JsonObject args, string what)
+    private async Task<string?> UserCallAsync(string tool, JsonObject args, string what, string by)
     {
-        var entry = new JsonObject { ["event"] = "control", ["by"] = "user (kiosk)", ["tool"] = tool, ["args"] = args.DeepClone(), ["what"] = what };
+        var entry = new JsonObject { ["event"] = "control", ["by"] = by, ["tool"] = tool, ["args"] = args.DeepClone(), ["what"] = what };
         try
         {
             var result = await ToolCallAsync(tool, args);

@@ -626,6 +626,7 @@ public sealed partial class MainWindow : Window
             _gateway = new Gateway(_settings.Gateway.Port, new Gateway.Dependencies(
                 _agent, _voice, DispatcherQueue, StatusForPhone, SnapshotAsync, _taskService,
                 _taskTools is null ? null : id => _taskTools.ReviewAsync(id, explicitRequest: true)));
+            _gateway.Home = _home;
             await _gateway.StartAsync();
         }
         catch (Exception ex)

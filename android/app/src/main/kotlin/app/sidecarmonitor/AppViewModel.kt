@@ -144,6 +144,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     suspend fun snapshot(index: Int): ByteArray? = runCatching { client?.snapshot(index) }.getOrNull()
 
+    // ---- House (Home Assistant through the kiosk) ----
+    suspend fun home(): app.sidecarmonitor.data.HomeInfo? = runCatching { client?.home() }.getOrNull()
+    suspend fun homeSet(d: app.sidecarmonitor.data.HomeDevice, on: Boolean): String? = client?.homeSet(d, on) ?: "Not connected"
+    suspend fun homeScript(s: app.sidecarmonitor.data.HomeScript): String? = client?.homeScript(s) ?: "Not connected"
+    suspend fun homeResume(): String? = client?.homeResume() ?: "Not connected"
+
     private val eventPictures = java.util.concurrent.ConcurrentHashMap<String, ByteArray>()
 
     /** Event pictures never change, so they're cached for the session. */

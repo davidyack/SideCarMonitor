@@ -93,6 +93,56 @@ public sealed class Gateway : IAsyncDisposable
         Key = LoadOrCreateKey();
     }
 
+    /// <summary>Home Assistant for the phone's House screen; null when it isn't set up.</summary>
+    public HomeAssistantBridge? Home { get; set; }
+
+    private void MapHome(WebApplication app)
+    {
+        app.MapGet("/api/home", async () =>
+        {
+            if (Home is not { } home) return Results.Json(new { available = false });
+            var devices = await home.DevicesAsync();
+            var scripts = await home.ScriptsAsync();
+            return Results.Json(new
+            {
+                available = true,
+                paused = home.PausedReason,
+                lightsOn = devices.Count(d => d.Domain == "light" && d.IsOn),
+                lights = devices.Count(d => d.Domain == "light"),
+                devices = devices.Select(d => new { name = d.Name, domain = d.Domain, state = d.State, area = d.Area, on = d.IsOn }),
+                scripts = scripts.Select(s => new { tool = s.Tool, name = s.Name }),
+                recent = HomeAssistantBridge.RecentActions(12),
+            });
+        });
+
+        // Your own taps on the phone: logged, not checked by the decision model (that's for the agent).
+        app.MapPost("/api/home/set", async (JsonObject body) =>
+        {
+            if (Home is not { } home) return Results.NotFound();
+            var name = body["name"]?.GetValue<string>(); var domain = body["domain"]?.GetValue<string>();
+            var device = (await home.DevicesAsync()).FirstOrDefault(d => d.Name == name && d.Domain == domain);
+            if (device is null) return Results.NotFound(new { error = "No such device" });
+            var error = await home.UserSetAsync(device, body["on"]?.GetValue<bool>() == true, "user (phone)");
+            return error is null ? Results.Ok(new { ok = true }) : Results.Json(new { error }, statusCode: 502);
+        });
+
+        app.MapPost("/api/home/script", async (JsonObject body) =>
+        {
+            if (Home is not { } home) return Results.NotFound();
+            var tool = body["tool"]?.GetValue<string>();
+            var script = (await home.ScriptsAsync()).FirstOrDefault(s => s.Tool == tool);
+            if (script is null) return Results.NotFound(new { error = "No such script" });
+            var error = await home.UserRunScriptAsync(script, "user (phone)");
+            return error is null ? Results.Ok(new { ok = true }) : Results.Json(new { error }, statusCode: 502);
+        });
+
+        app.MapPost("/api/home/resume", () =>
+        {
+            Home?.Resume();
+            return Results.Ok(new { ok = true });
+        });
+    }
+
     // ---- Endpoints ------------------------------------------------------------------------
 
     private void Map(WebApplication app)
@@ -111,6 +161,7 @@ public sealed class Gateway : IAsyncDisposable
                 : Results.NotFound());
 
         MapTasks(app);
+        MapHome(app);
 
         // Speech-to-text: body is 16 kHz, 16-bit, mono PCM WAV recorded on the phone or watch.
         app.MapPost("/api/listen", async (HttpRequest req, CancellationToken ct) =>
