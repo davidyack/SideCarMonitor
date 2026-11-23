@@ -194,6 +194,119 @@ public sealed class HomeAssistantBridge : IDisposable
             ["recent_home_actions"] = new JsonArray(recent.Select(r => (JsonNode)JsonValue.Create(r)!).ToArray()),
         });
 
+    // ---- Home page (your own taps: logged, but not checked by the decision model) ---------------
+
+    /// <summary>A device from Home Assistant's live context (only what's exposed to Assist).</summary>
+    public sealed record Device(string Name, string Domain, string State, string Area)
+    {
+        public bool IsOn => State is "on" or "open" or "opening" or "playing";
+    }
+
+    public sealed record Script(string Tool, string Name);
+
+    /// <summary>Lights, switches and covers (blinds) by name, with their state and room.</summary>
+    public async Task<List<Device>> DevicesAsync()
+    {
+        var result = await RpcAsync("tools/call", new JsonObject { ["name"] = "homeassistant__GetLiveContext", ["arguments"] = new JsonObject() });
+        var text = string.Join("\n", (result?["content"]?.AsArray() ?? []).Select(c => c?["text"]?.GetValue<string>()));
+        // The text is JSON {"result": "<YAML-like list>"}; each device starts with "- names:".
+        try { text = JsonNode.Parse(text)?["result"]?.GetValue<string>() ?? text; } catch (JsonException) { }
+        var devices = new List<Device>();
+        string? name = null, domain = null, state = null, area = null;
+        void Flush()
+        {
+            if (name is not null && domain is "light" or "switch" or "cover" or "fan")
+                devices.Add(new Device(name, domain!, state ?? "", area ?? "Other"));
+            name = domain = state = area = null;
+        }
+        foreach (var raw in text.Split('\n'))
+        {
+            var line = raw.TrimEnd();
+            if (line.StartsWith("- names: ")) { Flush(); name = Unquote(line[9..]); }
+            else if (line.StartsWith("  domain: ")) domain = Unquote(line[10..]);
+            else if (line.StartsWith("  state: ")) state = Unquote(line[9..]);
+            else if (line.StartsWith("  areas: ")) area = Unquote(line[9..]);
+        }
+        Flush();
+        return devices.DistinctBy(d => (d.Name, d.Domain)).OrderBy(d => d.Area).ThenBy(d => d.Name).ToList();
+    }
+
+    private static string Unquote(string v) => v.Trim().Trim('\'', '"');
+
+    /// <summary>Home Assistant scripts exposed to Assist, e.g. "Goodnight kc".</summary>
+    public async Task<List<Script>> ScriptsAsync()
+    {
+        var list = new List<Script>();
+        foreach (var t in await ToolsAsync())
+        {
+            var tool = t?["name"]?.GetValue<string>() ?? "";
+            if (!tool.StartsWith("script__")) continue;
+            var desc = t?["description"]?.GetValue<string>() ?? "";
+            var alias = System.Text.RegularExpressions.Regex.Match(desc, @"Aliases: \['([^']+)'");
+            list.Add(new Script(tool, alias.Success ? alias.Groups[1].Value : tool[8..].Replace('_', ' ')));
+        }
+        return list;
+    }
+
+    /// <summary>Turns a device on/off (opens/closes blinds) because you tapped it.</summary>
+    public async Task<string?> UserSetAsync(Device d, bool on)
+    {
+        var tool = on ? "intent__HassTurnOn" : "intent__HassTurnOff";
+        var args = new JsonObject { ["name"] = d.Name, ["domain"] = new JsonArray(d.Domain) };
+        return await UserCallAsync(tool, args, $"{(on ? "on" : "off")}: {d.Name}");
+    }
+
+    public Task<string?> UserRunScriptAsync(Script s) => UserCallAsync(s.Tool, new JsonObject(), $"ran {s.Name}");
+
+    /// <returns>null when it worked, else the error.</returns>
+    private async Task<string?> UserCallAsync(string tool, JsonObject args, string what)
+    {
+        var entry = new JsonObject { ["event"] = "control", ["by"] = "user (kiosk)", ["tool"] = tool, ["args"] = args.DeepClone(), ["what"] = what };
+        try
+        {
+            var result = await ToolCallAsync(tool, args);
+            var error = result?.GetType().GetProperty("error")?.GetValue(result) as string;
+            entry["result"] = error is null ? "done" : "failed";
+            if (error is not null) entry["why"] = error;
+            Log(entry);
+            return error;
+        }
+        catch (Exception ex)
+        {
+            entry["result"] = "failed"; entry["why"] = ex.Message; Log(entry);
+            return ex.Message;
+        }
+    }
+
+    /// <summary>Recent control actions and pauses from the log, newest first.</summary>
+    public static List<string> RecentActions(int count)
+    {
+        var lines = new List<string>();
+        try
+        {
+            if (!File.Exists(LogPath)) return lines;
+            foreach (var line in File.ReadLines(LogPath).Reverse())
+            {
+                var e = JsonNode.Parse(line);
+                var ev = e?["event"]?.GetValue<string>();
+                if (ev == "read") continue;
+                var at = DateTime.TryParse(e?["at"]?.GetValue<string>(), out var t) ? t.ToString("ddd h:mm tt") : "";
+                var text = ev switch
+                {
+                    "paused" => $"Paused: {e?["reason"]}",
+                    "resumed" => "Resumed by you",
+                    _ => $"{(e?["by"]?.GetValue<string>() is { } by ? "You" : "SideCar")}: " +
+                         $"{e?["what"]?.GetValue<string>() ?? $"{e?["tool"]} {e?["args"]?.ToJsonString()}"}" +
+                         (e?["result"]?.GetValue<string>() is "done" ? "" : $" ({e?["result"]})"),
+                };
+                lines.Add($"{at}  {text}");
+                if (lines.Count >= count) break;
+            }
+        }
+        catch (Exception) { /* a damaged line shouldn't break the page */ }
+        return lines;
+    }
+
     // ---- MCP (Home Assistant's server answers plain JSON-RPC over HTTP) ------------------------
 
     private async Task<JsonArray> ToolsAsync()

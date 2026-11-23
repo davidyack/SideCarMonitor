@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="SideCarMonitor.Controls.HomeControlPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Grid Background="{StaticResource KioskBackground}" Padding="{StaticResource PagePadding}" RowSpacing="{StaticResource Gap}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Grid ColumnSpacing="{StaticResource Gap}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Button Click="Home_Click" Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}"
+                    CornerRadius="{StaticResource SmallCorner}" FontSize="{StaticResource FontBody}" AutomationProperties.Name="Home">
+                <StackPanel Orientation="Horizontal" Spacing="{StaticResource Gap}">
+                    <FontIcon Glyph="&#xE80F;" FontSize="{StaticResource FontIcon}" />
+                    <TextBlock Text="Home" VerticalAlignment="Center" />
+                </StackPanel>
+            </Button>
+            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                <TextBlock Text="House" FontSize="{StaticResource FontTitle}" FontWeight="SemiBold" />
+                <TextBlock x:Name="SubtitleText" FontSize="{StaticResource FontCaption}" Foreground="{StaticResource MutedText}" />
+            </StackPanel>
+            <Button Grid.Column="2" Click="Refresh_Click" Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}"
+                    CornerRadius="{StaticResource SmallCorner}" FontSize="{StaticResource FontBody}" AutomationProperties.Name="Refresh">
+                <FontIcon Glyph="&#xE72C;" FontSize="{StaticResource FontIcon}" />
+            </Button>
+        </Grid>
+
+        <!-- Paused: only you can resume -->
+        <Border x:Name="PausedBar" Grid.Row="1" Visibility="Collapsed" Background="{StaticResource AlertBrush}"
+                Padding="{StaticResource RowPadding}" CornerRadius="{StaticResource SmallCorner}">
+            <Grid ColumnSpacing="{StaticResource Gap}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="PausedText" FontSize="{StaticResource FontBody}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                <Button Grid.Column="1" Content="Resume" Click="Resume_Click" FontSize="{StaticResource FontBody}"
+                        Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}" />
+            </Grid>
+        </Border>
+
+        <!-- Devices by room (left), scripts and recent actions (right) -->
+        <Grid Grid.Row="2" ColumnSpacing="{StaticResource Gap}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="2*" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <ScrollViewer>
+                <StackPanel x:Name="RoomsPanel" Spacing="{StaticResource Gap}" />
+            </ScrollViewer>
+            <ScrollViewer Grid.Column="1">
+                <StackPanel Spacing="{StaticResource Gap}">
+                    <TextBlock Text="Scripts" FontSize="{StaticResource FontBody}" FontWeight="SemiBold" />
+                    <StackPanel x:Name="ScriptsPanel" Spacing="{StaticResource SmallGap}" />
+                    <TextBlock Text="Recent" FontSize="{StaticResource FontBody}" FontWeight="SemiBold" Margin="0,8,0,0" />
+                    <StackPanel x:Name="RecentPanel" Spacing="4" />
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+    </Grid>
+</UserControl>

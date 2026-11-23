@@ -274,8 +274,8 @@
                 </Grid>
             </Border>
 
-            <!-- Clock (wide) -->
-            <Border Grid.ColumnSpan="2" Background="{StaticResource PanelBackground}" Padding="{StaticResource TilePadding}">
+            <!-- Clock -->
+            <Border Background="{StaticResource PanelBackground}" Padding="{StaticResource TilePadding}">
                 <Grid>
                     <TextBlock x:Name="HomeClockText" FontSize="{StaticResource FontTileIcon}" FontWeight="Light"
                                VerticalAlignment="Center" />
@@ -283,6 +283,23 @@
                                Foreground="{StaticResource MutedText}" />
                 </Grid>
             </Border>
+
+            <!-- House (Home Assistant, live) -->
+            <Button x:Name="HouseTile" Grid.Column="1" Style="{StaticResource MetroTile}"
+                    Background="{StaticResource TileTeal}" Padding="{StaticResource TilePadding}"
+                    Click="HouseTile_Click" AutomationProperties.Name="House">
+                <Grid>
+                    <FontIcon Glyph="&#xE80F;" FontSize="{StaticResource FontTileIcon}"
+                              HorizontalAlignment="Left" VerticalAlignment="Top" />
+                    <TextBlock x:Name="HouseTileValue" Text="--" FontSize="{StaticResource FontTileValue}"
+                               HorizontalAlignment="Right" VerticalAlignment="Top" />
+                    <StackPanel VerticalAlignment="Bottom">
+                        <TextBlock x:Name="HouseTileDetail" Text="Home Assistant" FontSize="{StaticResource FontCaption}"
+                                   Opacity="0.85" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="House" FontSize="{StaticResource FontBody}" />
+                    </StackPanel>
+                </Grid>
+            </Button>
 
             <!-- Cameras (wide, live) -->
             <Button Grid.Column="2" Grid.ColumnSpan="2" Style="{StaticResource MetroTile}"
@@ -396,6 +413,7 @@
 
         <!-- ===================== To-do ===================== -->
         <controls:TasksPage x:Name="TasksPageView" Visibility="Collapsed" />
+        <controls:HomeControlPage x:Name="HouseView" Visibility="Collapsed" />
 
         <!-- ===================== Pair phone (QR code) ===================== -->
         <Grid x:Name="PairingPage" Visibility="Collapsed" Background="{StaticResource KioskBackground}"
