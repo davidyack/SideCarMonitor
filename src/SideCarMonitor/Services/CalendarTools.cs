@@ -116,6 +116,23 @@ public sealed class CalendarTools(CalendarService calendars, EventJudge? decisio
         return new { added = true, calendar = match, subject, start = start.Value.ToString("ddd yyyy-MM-dd HH:mm"), end = end.Value.ToString("HH:mm") };
     }
 
+    /// <summary>Your own add from the Day view: logged, but not limited (the hourly limit is for the agent).</summary>
+    public async Task<string?> UserAddAsync(string calendar, string subject, DateTime start, DateTime end)
+    {
+        var entry = new JsonObject { ["at"] = DateTime.Now.ToString("o"), ["by"] = "user (kiosk)", ["what"] = $"{subject} on {calendar}, {start:ddd MMM d h:mm tt}-{end:h:mm tt}" };
+        try
+        {
+            await calendars.AddAsync(calendar, subject, start, end, null, null);
+            entry["result"] = "added"; Log(entry);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            entry["result"] = "failed"; entry["why"] = ex.Message; Log(entry);
+            return ex.Message;
+        }
+    }
+
     private static DateTime? Date(JsonNode? n) =>
         n is JsonValue v && v.TryGetValue<string>(out var s) && DateTime.TryParse(s, CultureInfo.CurrentCulture, DateTimeStyles.AssumeLocal, out var d) ? d : null;
 

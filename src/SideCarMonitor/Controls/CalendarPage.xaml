@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="SideCarMonitor.Controls.CalendarPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Grid Background="{StaticResource KioskBackground}" Padding="{StaticResource PagePadding}" RowSpacing="{StaticResource Gap}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Header: Home, date, paging -->
+        <Grid ColumnSpacing="{StaticResource Gap}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Button Click="Home_Click" Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}"
+                    CornerRadius="{StaticResource SmallCorner}" FontSize="{StaticResource FontBody}" AutomationProperties.Name="Home">
+                <StackPanel Orientation="Horizontal" Spacing="{StaticResource Gap}">
+                    <FontIcon Glyph="&#xE80F;" FontSize="{StaticResource FontIcon}" />
+                    <TextBlock Text="Home" VerticalAlignment="Center" />
+                </StackPanel>
+            </Button>
+            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                <TextBlock x:Name="DayTitle" FontSize="{StaticResource FontTitle}" FontWeight="SemiBold" />
+                <TextBlock x:Name="DaySubtitle" FontSize="{StaticResource FontCaption}" Foreground="{StaticResource MutedText}" />
+            </StackPanel>
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="{StaticResource SmallGap}">
+                <Button Click="Prev_Click" Width="{StaticResource TouchTarget}" Height="{StaticResource TouchTarget}" Padding="0"
+                        CornerRadius="{StaticResource SmallCorner}" AutomationProperties.Name="Previous day">
+                    <FontIcon Glyph="&#xE76B;" FontSize="{StaticResource FontIcon}" />
+                </Button>
+                <Button Click="Today_Click" Content="Today" FontSize="{StaticResource FontBody}" Height="{StaticResource TouchTarget}"
+                        Padding="{StaticResource PanelPadding}" CornerRadius="{StaticResource SmallCorner}" />
+                <Button Click="Next_Click" Width="{StaticResource TouchTarget}" Height="{StaticResource TouchTarget}" Padding="0"
+                        CornerRadius="{StaticResource SmallCorner}" AutomationProperties.Name="Next day">
+                    <FontIcon Glyph="&#xE76C;" FontSize="{StaticResource FontIcon}" />
+                </Button>
+            </StackPanel>
+        </Grid>
+
+        <Grid Grid.Row="1" ColumnSpacing="{StaticResource Gap}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="3*" />
+                <ColumnDefinition Width="2*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Timeline: tap an empty spot to add, a meeting to see it -->
+            <Border Background="{StaticResource PanelBackground}" CornerRadius="{StaticResource Corner}">
+                <ScrollViewer x:Name="TimelineScroll">
+                    <Canvas x:Name="Timeline" Tapped="Timeline_Tapped" Background="Transparent" SizeChanged="Timeline_SizeChanged" />
+                </ScrollViewer>
+            </Border>
+
+            <!-- Right: add / block, or the tapped meeting -->
+            <Border Grid.Column="1" Background="{StaticResource PanelBackground}" CornerRadius="{StaticResource Corner}" Padding="{StaticResource PanelPadding}">
+                <ScrollViewer>
+                    <StackPanel x:Name="SidePanel" Spacing="{StaticResource Gap}" />
+                </ScrollViewer>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>

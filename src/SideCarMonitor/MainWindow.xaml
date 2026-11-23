@@ -284,7 +284,8 @@
             </Border>
 
             <!-- Clock + next meeting (turns amber 15 minutes before) -->
-            <Border x:Name="ClockTile" Background="{StaticResource PanelBackground}" Padding="{StaticResource TilePadding}">
+            <Border x:Name="ClockTile" Background="{StaticResource PanelBackground}" Padding="{StaticResource TilePadding}"
+                    Tapped="ClockTile_Tapped" AutomationProperties.Name="Calendar">
                 <Grid>
                     <StackPanel VerticalAlignment="Top">
                         <TextBlock x:Name="NextMeetingWhen" FontSize="{StaticResource FontCaption}" Foreground="{StaticResource MutedText}" />
@@ -446,6 +447,7 @@
         <controls:HomeControlPage x:Name="HouseView" Visibility="Collapsed" />
         <controls:ActivityPage x:Name="ActivityView" Visibility="Collapsed" />
         <controls:LinkedInPage x:Name="LinkedInView" Visibility="Collapsed" />
+        <controls:CalendarPage x:Name="CalendarView" Visibility="Collapsed" />
 
         <!-- ===================== Pair phone (QR code) ===================== -->
         <Grid x:Name="PairingPage" Visibility="Collapsed" Background="{StaticResource KioskBackground}"

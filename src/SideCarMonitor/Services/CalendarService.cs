@@ -88,9 +88,17 @@ public sealed class CalendarService
     /// <summary>Reloads both calendars for today and the next 14 days (call every few minutes).</summary>
     public async Task RefreshAsync()
     {
+        _events = await LoadAsync(DateTime.Today, DateTime.Today.AddDays(15));
+        _loadedAt = DateTime.Now;
+        Changed?.Invoke();
+    }
+
+    /// <summary>One day from both calendars (any date, past or future), for the Day view.</summary>
+    public Task<List<CalEvent>> DayAsync(DateTime day) => LoadAsync(day.Date, day.Date.AddDays(1));
+
+    private async Task<List<CalEvent>> LoadAsync(DateTime from, DateTime to)
+    {
         await AppAsync();
-        var from = DateTime.Today;
-        var to = from.AddDays(15);
         var all = new List<CalEvent>();
         foreach (var label in _accounts.Keys)
         {
@@ -119,9 +127,7 @@ public sealed class CalendarService
                 Problems[label] = ex.Message;
             }
         }
-        _events = all.OrderBy(e => e.Start).ToList();
-        _loadedAt = DateTime.Now;
-        Changed?.Invoke();
+        return all.OrderBy(e => e.Start).ToList();
     }
 
     public bool IsStale => DateTime.Now - _loadedAt > TimeSpan.FromMinutes(5);

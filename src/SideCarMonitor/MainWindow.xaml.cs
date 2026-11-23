@@ -31,6 +31,7 @@ public sealed partial class MainWindow : Window
 
     private void HouseTile_Click(object sender, RoutedEventArgs e)
     {
+        CalendarView.Visibility = Visibility.Collapsed;
         LinkedInView.Visibility = Visibility.Collapsed;
         ActivityView.Visibility = Visibility.Collapsed;
         WeatherPage.Visibility = Visibility.Collapsed;
@@ -424,6 +425,7 @@ public sealed partial class MainWindow : Window
 
     private void ShowActivity()
     {
+        CalendarView.Visibility = Visibility.Collapsed;
         LinkedInView.Visibility = Visibility.Collapsed;
         HouseView.Visibility = Visibility.Collapsed;
         TasksPageView.Visibility = Visibility.Collapsed;
@@ -440,6 +442,14 @@ public sealed partial class MainWindow : Window
     private CalendarTools? _calendarTools;
     private readonly HashSet<string> _meetingPopups = [];
     private string? _popupJoinUrl;
+
+    private void ClockTile_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
+    {
+        HideOverlayPages();
+        HomePage.Visibility = Visibility.Collapsed;
+        CalendarView.Visibility = Visibility.Visible;
+        CalendarView.Show();
+    }
 
     private CalEvent? NextMeeting() => _calendar?.Events
         .Where(e => !e.AllDay && e.ShowAs != "free" && e.End > DateTime.Now && e.Start.Date == DateTime.Today)
@@ -538,6 +548,7 @@ public sealed partial class MainWindow : Window
         TasksPageView.Visibility = Visibility.Collapsed;
         WeatherPage.Visibility = Visibility.Collapsed;
         LinkedInView.Visibility = Visibility.Collapsed;
+        CalendarView.Visibility = Visibility.Collapsed;
     }
     private string _activityFilter = "all";
     private HomeEventStream? _houseEvents;
@@ -693,6 +704,7 @@ public sealed partial class MainWindow : Window
 
     private void ShowTasks()
     {
+        CalendarView.Visibility = Visibility.Collapsed;
         LinkedInView.Visibility = Visibility.Collapsed;
         ActivityView.Visibility = Visibility.Collapsed;
         HouseView.Visibility = Visibility.Collapsed;
@@ -704,6 +716,7 @@ public sealed partial class MainWindow : Window
 
     private void ShowHome()
     {
+        CalendarView.Visibility = Visibility.Collapsed;
         LinkedInView.Visibility = Visibility.Collapsed;
         ActivityView.Visibility = Visibility.Collapsed;
         HouseView.Visibility = Visibility.Collapsed;
@@ -714,6 +727,7 @@ public sealed partial class MainWindow : Window
 
     private void ShowCameras()
     {
+        CalendarView.Visibility = Visibility.Collapsed;
         LinkedInView.Visibility = Visibility.Collapsed;
         ActivityView.Visibility = Visibility.Collapsed;
         HouseView.Visibility = Visibility.Collapsed;
@@ -725,6 +739,7 @@ public sealed partial class MainWindow : Window
 
     private void ShowWeather()
     {
+        CalendarView.Visibility = Visibility.Collapsed;
         LinkedInView.Visibility = Visibility.Collapsed;
         ActivityView.Visibility = Visibility.Collapsed;
         HouseView.Visibility = Visibility.Collapsed;
@@ -760,6 +775,8 @@ public sealed partial class MainWindow : Window
         _calendar = new CalendarService();
         _calendarTools = new CalendarTools(_calendar, _judge);
         _calendar.Changed += () => DispatcherQueue.TryEnqueue(UpdateMeetingTile);
+        CalendarView.Initialize(_calendar, _calendarTools);
+        CalendarView.HomeRequested += ShowHome;
         _ = _calendar.RefreshAsync();
         _home = HomeAssistantBridge.Create(a.HomeAssistantUrl, _judge);
         HouseView.Initialize(_home);
