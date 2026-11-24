@@ -186,6 +186,23 @@ var reminderTools = new[]
 };
 string[] reminderToolNames = ["reminder_add", "reminder_list", "reminder_done"];
 
+// ---- Flights: read-only search (never books or pays) -----
+var flightTools = new[]
+{
+    HostTool("flight_search",
+        [Description("Searches real flight options (default United) for a date range and checks seat maps for open exit-row seats that recline (rear exit row, e.g. United 737 row 21). Read-only: never books. Takes up to a couple of minutes.")]
+        async ([Description("Origin airport code, e.g. DEN")] string from,
+               [Description("Destination airport code, e.g. BOS (pick the main airport for a city)")] string to,
+               [Description("Earliest departure date, e.g. 2026-12-10")] string departFrom,
+               [Description("Latest departure date (same as departFrom for one day)")] string departTo,
+               [Description("Earliest return date, or empty for one-way")] string? returnFrom = null,
+               [Description("Latest return date")] string? returnTo = null,
+               [Description("Airline code, default UA (United)")] string airline = "UA",
+               [Description("Only nonstop flights")] bool nonstopOnly = false) =>
+            await AskHostAsync("flight_search", new { from, to, departFrom, departTo, returnFrom, returnTo, airline, nonstopOnly }, 240)),
+};
+string[] flightToolNames = ["flight_search"];
+
 var taskTools = new[]
 {
     HostTool("tasks_list",
@@ -374,13 +391,21 @@ await using var session = await client.CreateSessionAsync(new CreateSessionOptio
             not a calendar entry): it keeps bugging the user until they act on it. Get the current time from reminder_list or
             calendar tools if you need it; "tomorrow" or a weekday without a time means 9:00 AM. Confirm back what you set
             and when, e.g. "OK, I'll remind you at 3:30 to call the vet." For "every ..." pass repeat.
+
+            Flights: the user flies United out of Denver (DEN) and prefers a reclining exit-row seat (the rear exit row, e.g.
+            row 21 on United 737s; the front exit row doesn't recline). Use flight_search for flight questions and for travel
+            to-dos ("book a flight to...", "trip to..."): turn rough days into date ranges, get the current date from calendar
+            tools if needed, and check their calendars for conflicts. When taking a pass at a travel to-do, save the top 3
+            options as the deliverable (flights, times, price, which have reclining exit-row seats open, and the booking
+            link) and ask one question if something is missing (dates, return or one-way). You can only search: never book,
+            hold or pay; the user books on united.com. If the result says TEST MODE, say the results are sample data.
             """ + "\n\n" + memory.Digest() + "\n\n" + skills.Catalog(),
     },
     // Only our own host-answered tools. No built-in tools (shell, files) until we decide on them together.
     Tools = new SessionToolOptions
     {
-        AvailableTools = ["get_local_weather", .. memoryToolNames, .. taskToolNames, .. homeToolNames, .. calendarToolNames, .. reminderToolNames],
-        Definitions = [weatherTool, .. memoryTools, .. taskTools, .. homeTools, .. calendarTools, .. reminderTools],
+        AvailableTools = ["get_local_weather", .. memoryToolNames, .. taskToolNames, .. homeToolNames, .. calendarToolNames, .. reminderToolNames, .. flightToolNames],
+        Definitions = [weatherTool, .. memoryTools, .. taskTools, .. homeTools, .. calendarTools, .. reminderTools, .. flightTools],
     },
     Permissions = new SessionPermissionOptions
     {

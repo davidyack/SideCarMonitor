@@ -625,6 +625,29 @@ public sealed partial class MainWindow : Window
         UpdateReminderBar();
     }
 
+    // ---- Flights (Duffel, read-only) ----
+    private FlightSearch? _flights;
+
+    private async Task<object?> FlightSearchAsync(AgentHost.ToolCall call)
+    {
+        _flights ??= FlightSearch.Create();
+        if (_flights is null) return new { error = "Flight search isn't set up (no duffel-token.txt)." };
+        var a = call.Args;
+        string S(string k) => a?[k] is System.Text.Json.Nodes.JsonValue v && v.TryGetValue<string>(out var s) ? s.Trim() : "";
+        DateOnly? D(string k) => DateOnly.TryParse(S(k), out var d) ? d : null;
+        if (D("departFrom") is not { } df) return new { error = "Need departFrom as a date, e.g. 2026-12-10." };
+        try
+        {
+            var airline = S("airline");
+            var nonstop = a?["nonstopOnly"] is System.Text.Json.Nodes.JsonValue nv && nv.TryGetValue<bool>(out var b) && b;
+            var result = await Task.Run(() => _flights.SearchAsync(S("from").ToUpperInvariant(), S("to").ToUpperInvariant(), df, D("departTo") ?? df,
+                D("returnFrom"), D("returnTo"), airline.Length == 0 ? "UA" : airline, nonstop));
+            SystemEvents.Report("Flight search", $"{S("from")}-{S("to")} {df:MMM d}" + (_flights.TestMode ? " (test data)" : ""));
+            return result;
+        }
+        catch (Exception ex) { return new { error = ex.Message }; }
+    }
+
     // ---- Morning (8 AM) and evening (8 PM) briefs ----
     private BriefService? _briefs;
     private Brief? _shownBrief;
@@ -1111,6 +1134,7 @@ public sealed partial class MainWindow : Window
         _agent.ToolHandler = call => call.Name switch
         {
             "get_local_weather" => Task.FromResult<object?>(LocalWeatherForAgent()),
+            "flight_search" => FlightSearchAsync(call),
             _ when call.Name.StartsWith("reminder_") => Task.FromResult<object?>(_reminders?.Handle(call, _agent?.TurnText(call.Turn)) ?? new { error = "Reminders aren't available." }),
             _ when call.Name.StartsWith("calendar_") => _calendarTools is null
                 ? Task.FromResult<object?>(new { error = "Calendars aren't set up." })
