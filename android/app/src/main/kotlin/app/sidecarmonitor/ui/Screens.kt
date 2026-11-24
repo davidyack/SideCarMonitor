@@ -1,6 +1,8 @@
 package app.sidecarmonitor.ui
 
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import android.graphics.BitmapFactory
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
@@ -254,10 +256,10 @@ fun ActivityScreen(state: UiState, snapshot: suspend (Int) -> ByteArray?, eventS
         PageHeader("Activity", onBack)
         val all = state.status?.activity.orEmpty()
         val items = (if (history) all else all.filter { !it.cleared }).filter {
-            when (filter) { "camera" -> it.source == "camera"; "door" -> it.source == "door"; "house" -> it.source in listOf("house", "sidecar"); "system" -> it.source in listOf("system", "sidecar"); else -> true }
+            when (filter) { "camera" -> it.source == "camera"; "door" -> it.source == "door"; "house" -> it.source in listOf("house", "sidecar"); "weather" -> it.source == "weather"; "system" -> it.source in listOf("system", "sidecar"); else -> true }
         }
-        Row(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf("all" to "All", "camera" to "Cameras", "door" to "Doors", "house" to "House", "system" to "System").forEach { (k, label) ->
+        Row(Modifier.padding(horizontal = 12.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("all" to "All", "camera" to "Cameras", "door" to "Doors", "house" to "House", "weather" to "Weather", "system" to "System").forEach { (k, label) ->
                 Text(label, Modifier.background(if (filter == k) SideCarColors.Cobalt else SideCarColors.Panel).clickable { filter = k }
                     .padding(horizontal = 10.dp, vertical = 8.dp), fontSize = 13.sp)
             }
@@ -329,7 +331,8 @@ private fun ActivityDetail(state: UiState, a: app.sidecarmonitor.data.ActivityIt
                     Modifier.padding(top = 4.dp), color = SideCarColors.Muted, fontSize = 13.sp)
             }
             if (a.source == "camera" && a.snapshots.isEmpty()) item { Text("No picture was saved for this event", color = SideCarColors.Muted, fontSize = 13.sp) }
-            if (a.ai.isNotBlank()) item { DetailRow("AI says", a.ai) }
+            if (a.source == "weather") { if (a.detail.isNotBlank()) item { DetailRow("Details", a.detail) } }
+            else if (a.ai.isNotBlank()) item { DetailRow("AI says", a.ai) }
             item { DetailRow(if (a.source == "camera") "Camera saw" else "What", a.kind) }
             item { DetailRow(if (a.source == "camera") "Camera" else "Where", a.camera) }
             item { DetailRow("Started", eventTime(a.start)) }

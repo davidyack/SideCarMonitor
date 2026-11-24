@@ -53,11 +53,13 @@ data class ActivityItem(
     /** The decision model's label for the picture, e.g. "Delivery · FYI" (empty until judged). */
     val ai: String = "",
     val attention: String = "",
-    /** "camera", "door" (doors, locks, garage, alarms), "house" (automations) or "sidecar" (SideCar's own actions). */
+    /** "camera", "door" (doors, locks, garage, alarms), "house" (automations), "weather" (weather alerts) or "sidecar" (SideCar's own actions). */
     val source: String = "camera",
     val alert: Boolean = false,
     /** Cleared from the feed (still shown in History). */
     val cleared: Boolean = false,
+    /** One line of context, e.g. a weather alert's "from NW, average 11 mph; forecast had gusts of 9 mph". */
+    val detail: String = "",
 )
 
 @Serializable

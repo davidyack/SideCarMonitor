@@ -27,7 +27,22 @@
     // Optional: a WeatherFlow personal access token (tempestwx.com > Settings > Data Authorizations) adds the
     // hourly and 10-day forecast and the station's history. The station is found from the token.
     "tempestToken": "",
-    "tempestStationId": null       // only needed if the account has more than one station
+    "tempestStationId": null,      // only needed if the account has more than one station
+    // Alerts go to Activity (Weather filter), plus a popup and voice. Thresholds in °F, mph and miles; 0 turns a rule off.
+    // Forecast-based ones (rain/snow soon, wind picking up, colder than forecast) need the token above.
+    "alerts": {
+      "enabled": true,
+      "gustMph": 20,               // gusts now, and a heads-up when forecast within windComingHours
+      "tempDropF": 8, "tempDropMinutes": 30,
+      "colderThanForecastF": 10,
+      "precipStarted": true, "dryMinutesBeforeStart": 60,
+      "precipComing": true, "precipChancePercent": 50, "precipComingHours": 2,
+      "windComingHours": 6,
+      "lightningMiles": 10,
+      "cooldownHours": 3,          // same kind again only after this, unless it gets markedly worse
+      "popup": true, "speak": true,
+      "quietFrom": 22, "quietUntil": 7  // no voice or chime overnight; still logged and shown
+    }
   },
   "cameras": [
     {

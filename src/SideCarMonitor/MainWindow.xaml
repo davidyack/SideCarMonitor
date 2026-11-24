@@ -161,6 +161,7 @@
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <Button Click="HomeButton_Click" Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}"
                         CornerRadius="{StaticResource SmallCorner}" FontSize="{StaticResource FontBody}">
@@ -171,14 +172,22 @@
                 </Button>
                 <StackPanel Grid.Column="1" VerticalAlignment="Center">
                     <TextBlock Text="Weather" FontSize="{StaticResource FontTitle}" FontWeight="SemiBold" />
-                    <TextBlock x:Name="WeatherStatusText" Text="Waiting for Tempest broadcast"
+                    <TextBlock x:Name="WeatherStatusText" Text="Waiting for Tempest broadcast" TextTrimming="CharacterEllipsis"
                                FontSize="{StaticResource FontCaption}" Foreground="{StaticResource MutedText}" />
                 </StackPanel>
-                <TextBlock x:Name="WeatherClockText" Grid.Column="2" FontSize="{StaticResource FontTitle}"
+                <!-- Now (live station) / Hourly / 10 days -->
+                <StackPanel x:Name="WeatherTabs" Grid.Column="2" Orientation="Horizontal" Spacing="{StaticResource SmallGap}">
+                    <Button Tag="now" Content="Now" Click="WeatherTab_Click" FontSize="{StaticResource FontBody}" Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}" />
+                    <Button Tag="hourly" Content="Hourly" Click="WeatherTab_Click" FontSize="{StaticResource FontBody}" Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}" />
+                    <Button Tag="days" Content="10 days" Click="WeatherTab_Click" FontSize="{StaticResource FontBody}" Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}" />
+                </StackPanel>
+                <TextBlock x:Name="WeatherClockText" Grid.Column="3" FontSize="{StaticResource FontTitle}"
                            VerticalAlignment="Center" />
             </Grid>
 
-            <Grid Grid.Row="1" RowSpacing="{StaticResource Gap}" ColumnSpacing="{StaticResource Gap}">
+            <controls:WeatherForecastView x:Name="WeatherForecast" Grid.Row="1" Visibility="Collapsed" />
+
+            <Grid x:Name="WeatherNowGrid" Grid.Row="1" RowSpacing="{StaticResource Gap}" ColumnSpacing="{StaticResource Gap}">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="*" />
@@ -393,6 +402,8 @@
                     <TextBlock x:Name="WeatherTileValue" Text="--" FontSize="{StaticResource FontTileValue}"
                                HorizontalAlignment="Right" VerticalAlignment="Top" />
                     <StackPanel VerticalAlignment="Bottom">
+                        <TextBlock x:Name="WeatherTileNext" FontSize="{StaticResource FontCaption}" FontWeight="SemiBold"
+                                   TextTrimming="CharacterEllipsis" Visibility="Collapsed" />
                         <TextBlock x:Name="WeatherTileDetail" Text="Waiting for Tempest" FontSize="{StaticResource FontCaption}"
                                    Opacity="0.85" TextTrimming="CharacterEllipsis" />
                         <TextBlock Text="Weather" FontSize="{StaticResource FontBody}" />

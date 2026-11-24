@@ -55,6 +55,7 @@ class MainActivity : ComponentActivity() {
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 7)
         app.sidecarmonitor.reminders.Reminders.schedule(this)
+        app.sidecarmonitor.reminders.WeatherAlerts.schedule(this)
         setContent {
             SideCarTheme {
               // Surface sets the default text/icon color (white) for everything inside.

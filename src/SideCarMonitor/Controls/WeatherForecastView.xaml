@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="SideCarMonitor.Controls.WeatherForecastView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Grid>
+        <!-- Shown when there's no forecast (no token, or the first download hasn't finished) -->
+        <TextBlock x:Name="EmptyText" Visibility="Collapsed" TextWrapping="Wrap" FontSize="{StaticResource FontBody}"
+                   Foreground="{StaticResource MutedText}" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center" />
+
+        <!-- Hourly: highlights, a sideways strip of hours (past = your station, then forecast), details of the tapped hour -->
+        <Grid x:Name="HourlyPanel" RowSpacing="{StaticResource Gap}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <TextBlock x:Name="HighlightsText" FontSize="{StaticResource FontCaption}" Foreground="{StaticResource MutedText}"
+                       TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />
+            <ScrollViewer x:Name="HourScroller" Grid.Row="1" HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Hidden"
+                          VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled">
+                <StackPanel x:Name="HourStrip" Orientation="Horizontal" Spacing="{StaticResource SmallGap}" />
+            </ScrollViewer>
+            <Border x:Name="HourDetail" Grid.Row="2" Background="{StaticResource PanelBackground}" Padding="{StaticResource TilePadding}"
+                    CornerRadius="{StaticResource SmallCorner}">
+                <Grid RowSpacing="{StaticResource SmallGap}">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <TextBlock x:Name="DetailTitle" FontSize="{StaticResource FontTitle}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                    <Grid x:Name="DetailGrid" Grid.Row="1" ColumnSpacing="{StaticResource Gap}" RowSpacing="{StaticResource SmallGap}" />
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- 10 days: one row per day; tap a day to see its hours -->
+        <ScrollViewer x:Name="DaysPanel" Visibility="Collapsed" VerticalScrollMode="Enabled" HorizontalScrollMode="Disabled">
+            <StackPanel x:Name="DayList" Spacing="{StaticResource SmallGap}" />
+        </ScrollViewer>
+    </Grid>
+</UserControl>

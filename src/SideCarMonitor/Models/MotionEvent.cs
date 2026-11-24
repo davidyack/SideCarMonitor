@@ -106,7 +106,7 @@ public sealed class MotionEvent : INotifyPropertyChanged
     }
 
     /// <summary>e.g. "Delivery · Look now", or empty before the picture is judged.</summary>
-    public string VerdictText => _verdict?.Summary ?? (_alert && _detail.Length > 0 ? $"Look now \u00B7 {_detail}" : _detail);
+    public string VerdictText => _verdict?.Summary ?? (_alert && _detail.Length > 0 && Source != "weather" ? $"Look now \u00B7 {_detail}" : _detail);
 
     public string CameraName { get; }
     public int CameraIndex { get; }

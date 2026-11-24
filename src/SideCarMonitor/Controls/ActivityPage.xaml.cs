@@ -68,6 +68,7 @@ public sealed partial class ActivityPage : UserControl
         "camera" => ev.IsCamera,
         "door" => ev.Source == "door",
         "house" => ev.Source is "house" or "sidecar",
+        "weather" => ev.Source == "weather",
         "system" => ev.Source is "system" or "sidecar",
         _ => true,
     };

@@ -107,6 +107,41 @@ public sealed class WeatherSettings
     public string TempestToken { get; set; } = "";
     /// <summary>Which station to use when the account has several; null = the first one.</summary>
     public int? TempestStationId { get; set; }
+    /// <summary>Weather alerts (Activity feed, popup, voice).</summary>
+    public WeatherAlertSettings Alerts { get; set; } = new();
+}
+
+/// <summary>Thresholds for weather alerts, in °F, mph and miles whatever the display units. 0 turns a rule off.</summary>
+public sealed class WeatherAlertSettings
+{
+    public bool Enabled { get; set; } = true;
+    /// <summary>Gusts at or above this (live), or forecast within <see cref="WindComingHours"/>.</summary>
+    public double GustMph { get; set; } = 20;
+    /// <summary>A drop of this many degrees within <see cref="TempDropMinutes"/>.</summary>
+    public double TempDropF { get; set; } = 8;
+    public int TempDropMinutes { get; set; } = 30;
+    /// <summary>This many degrees colder than the forecast for the hour.</summary>
+    public double ColderThanForecastF { get; set; } = 10;
+    /// <summary>Rain, snow or hail has started (after at least <see cref="DryMinutesBeforeStart"/> dry).</summary>
+    public bool PrecipStarted { get; set; } = true;
+    public int DryMinutesBeforeStart { get; set; } = 60;
+    /// <summary>Rain or snow likely (at least <see cref="PrecipChancePercent"/>) within <see cref="PrecipComingHours"/>.</summary>
+    public bool PrecipComing { get; set; } = true;
+    public int PrecipChancePercent { get; set; } = 50;
+    public int PrecipComingHours { get; set; } = 2;
+    /// <summary>Heads-up for forecast gusts over <see cref="GustMph"/> within this many hours.</summary>
+    public int WindComingHours { get; set; } = 6;
+    /// <summary>Lightning within this many miles.</summary>
+    public double LightningMiles { get; set; } = 10;
+    /// <summary>Hours before the same kind of alert repeats (sooner if it gets markedly worse).</summary>
+    public double CooldownHours { get; set; } = 3;
+    /// <summary>Show the popup on the kiosk (all alerts go to Activity regardless).</summary>
+    public bool Popup { get; set; } = true;
+    /// <summary>Say alerts out loud, except during quiet hours.</summary>
+    public bool Speak { get; set; } = true;
+    /// <summary>Quiet hours (24-hour clock), from QuietFrom until QuietUntil: no voice or chime; alerts still go to Activity and the popup.</summary>
+    public int QuietFrom { get; set; } = 22;
+    public int QuietUntil { get; set; } = 7;
 }
 
 public sealed class DisplaySettings

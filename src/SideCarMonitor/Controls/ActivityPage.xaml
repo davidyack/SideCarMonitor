@@ -38,6 +38,7 @@
                 <Button Tag="camera" Content="Cameras" Click="Filter_Click" FontSize="{StaticResource FontBody}" Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}" />
                 <Button Tag="door" Content="Doors" Click="Filter_Click" FontSize="{StaticResource FontBody}" Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}" />
                 <Button Tag="house" Content="House" Click="Filter_Click" FontSize="{StaticResource FontBody}" Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}" />
+                <Button Tag="weather" Content="Weather" Click="Filter_Click" FontSize="{StaticResource FontBody}" Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}" />
                 <Button Tag="system" Content="System" Click="Filter_Click" FontSize="{StaticResource FontBody}" Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}" />
             </StackPanel>
         </Grid>

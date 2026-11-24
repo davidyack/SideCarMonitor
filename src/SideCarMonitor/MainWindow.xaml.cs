@@ -360,6 +360,7 @@ public sealed partial class MainWindow : Window
         if (EventPopup.Visibility != Visibility.Visible && KioskIsBusy) return;
         _popupEvent = ev;
         _popupJoinUrl = null;
+        _popupWeather = false;
         if (EventPopup.Visibility != Visibility.Visible) PlayChime();
         EventPopupImage.Visibility = Visibility.Visible;
         EventPopupAction.Visibility = Visibility.Visible;
@@ -449,6 +450,7 @@ public sealed partial class MainWindow : Window
         EventPopup.Visibility = Visibility.Collapsed;
         EventPopupImage.Source = null;
         _popupEvent = null;
+        _popupWeather = false;
     }
 
     private void EventPopupDismiss_Click(object sender, RoutedEventArgs e) => CloseEventPopup();
@@ -457,6 +459,12 @@ public sealed partial class MainWindow : Window
 
     private void EventPopupLive_Click(object sender, RoutedEventArgs e)
     {
+        if (_popupWeather)
+        {
+            CloseEventPopup();
+            ShowWeather();
+            return;
+        }
         if (_popupJoinUrl is { } join)
         {
             CloseEventPopup();
@@ -549,6 +557,7 @@ public sealed partial class MainWindow : Window
     {
         if (PairingPage.Visibility == Visibility.Visible) return;
         _popupEvent = null;
+        _popupWeather = false;
         _popupJoinUrl = e.JoinUrl.Length > 0 ? e.JoinUrl : null;
         EventPopupTitle.Text = e.Subject;
         EventPopupWhen.Text = $"{e.Start:h:mm tt}\u2013{e.End:h:mm tt} \u00B7 in {Math.Max(1, Math.Ceiling((e.Start - DateTime.Now).TotalMinutes))} min \u00B7 {e.Calendar}";
@@ -812,6 +821,7 @@ public sealed partial class MainWindow : Window
             cameraEvents = feed.Count(e => e.IsCamera),
             worthALook = feed.Where(e => e.Alert).Take(10).Select(e => $"{e.Start:h:mm tt} {e.Label} at {e.CameraName}: {e.VerdictText}"),
             doorsAndLocks = feed.Where(e => e.Source == "door").Take(10).Select(e => $"{e.Start:h:mm tt} {e.Label}: {e.CameraName} {e.Detail}"),
+            weatherAlerts = feed.Where(e => e.Source == "weather").Take(8).Select(e => $"{e.Start:h:mm tt} {e.Label}: {e.Detail}"),
             sidecarSafeguards = feed.Where(e => e.Source is "system" or "sidecar" && (e.Alert || e.Label.StartsWith("Stopped") || e.Label.Contains("blocked"))).Take(8).Select(e => $"{e.Start:h:mm tt} {e.Label} {e.Detail}"),
         };
 
@@ -1278,7 +1288,7 @@ public sealed partial class MainWindow : Window
                 var degrees = _settings.Weather.Imperial ? $"{swing * 9 / 5:0} °F" : $"{swing:0} °C";
                 list.Add($"Big temperature swing: {degrees} between {lo.Time:ddd h tt} and {hi.Time:ddd h tt}");
             }
-            if (lo.TempC <= 0) list.Add($"Freezing: first below freezing at {temps.First(h => h.TempC <= 0).Time:ddd h tt}");
+            if (lo.TempC <= 0) list.Add($"At or below freezing from {temps.First(h => h.TempC <= 0).Time:ddd h tt}");
         }
         if (hours.Where(h => h.WindGustMs is not null).MaxBy(h => h.WindGustMs) is { } w)
             list.Add($"Strongest gusts {_wx.Speed(w.WindGustMs)} around {w.Time:ddd h tt}");
@@ -1321,9 +1331,15 @@ public sealed partial class MainWindow : Window
     private void StartTempest()
     {
         // Forecast and station history from the WeatherFlow cloud (only with a token); independent of the local feed.
+        _wxAlerts = new WeatherAlerts(_settings.Weather.Alerts, _wx);
         try
         {
             _wxCloud = TempestCloud.Create(_settings.Weather, DispatcherQueue);
+            if (_wxCloud is not null)
+            {
+                _wxCloud.Updated += () => LookForWeatherAlerts(force: true);
+                _wxCloud.Updated += RefreshForecastView;
+            }
             _wxCloud?.Start();
         }
         catch (Exception ex)
@@ -1332,11 +1348,16 @@ public sealed partial class MainWindow : Window
             SystemEvents.Report("Weather forecast unavailable", ex.Message);
         }
 
+        WeatherForecast.DayTapped += () => SetWeatherTab("hourly");
+        SetWeatherTab("now");
+        RefreshForecastView(); // a cached forecast from the last run shows straight away
+
         if (!_settings.Weather.TempestEnabled) return;
         try
         {
             _tempest = new TempestListener(DispatcherQueue);
             _tempest.Updated += UpdateWeather;
+            _tempest.Updated += CheckWeatherAlerts;
             _tempest.Start();
             if (_tempest.State.LastObservation is not null) UpdateWeather(); // cached reading from last run
         }
@@ -1346,6 +1367,113 @@ public sealed partial class MainWindow : Window
             WeatherTileDetail.Text = "Tempest unavailable";
             WeatherStatusText.Text = $"Can't listen on UDP {TempestListener.Port}: {ex.Message}";
         }
+    }
+
+    // ---- Weather page tabs (Now / Hourly / 10 days) and the tile's look-ahead line ----
+    private string _weatherTab = "now";
+    private DateTime _forecastDrawnHour;
+
+    private void WeatherTab_Click(object sender, RoutedEventArgs e) => SetWeatherTab((string)((Button)sender).Tag);
+
+    private void SetWeatherTab(string tab)
+    {
+        _weatherTab = tab;
+        WeatherNowGrid.Visibility = tab == "now" ? Visibility.Visible : Visibility.Collapsed;
+        WeatherForecast.Visibility = tab == "now" ? Visibility.Collapsed : Visibility.Visible;
+        if (tab != "now") WeatherForecast.SetMode(tab);
+        foreach (var b in WeatherTabs.Children.OfType<Button>())
+            b.Background = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources[(string)b.Tag == tab ? "TileCobalt" : "PanelBackground"];
+    }
+
+    /// <summary>Redraws the Hourly / 10 days tabs and the tile line (on each forecast download and when the hour turns).</summary>
+    private void RefreshForecastView()
+    {
+        var o = _wxCloud?.Outlook;
+        var now = DateTime.Now;
+        _forecastDrawnHour = now.Date.AddHours(now.Hour);
+        var next24 = o?.Hourly.Where(h => h.Time >= _forecastDrawnHour && h.Time < _forecastDrawnHour.AddHours(24)).ToList() ?? [];
+        var empty = _wxCloud is null
+            ? "Add a WeatherFlow token (weather.tempestToken in settings.json) to see the hourly and 10-day forecast."
+            : "Downloading the forecast…" + (_wxCloud.LastError is { } err ? $"\n{err}" : "");
+        WeatherForecast.Show(o, _wx, next24.Count > 0 ? ForecastHighlights(next24) : [], empty);
+        UpdateWeatherTileNext(o, now);
+    }
+
+    /// <summary>The tile's look-ahead: the next thing worth knowing in the coming 12 hours, else today's high or tonight's low.</summary>
+    private void UpdateWeatherTileNext(WeatherOutlook? o, DateTime now)
+    {
+        string? text = null;
+        if (o is not null && now - o.FetchedAt < TimeSpan.FromHours(6))
+        {
+            var thisHour = now.Date.AddHours(now.Hour);
+            var soon = o.Hourly.Where(h => h.Time > thisHour && h.Time <= thisHour.AddHours(12)).ToList();
+            var cfg = _settings.Weather.Alerts;
+            var precip = soon.FirstOrDefault(h => h.PrecipProbability >= Math.Max(30, cfg.PrecipChancePercent));
+            var gusty = soon.Where(h => h.WindGustMs * 2.23694 >= (cfg.GustMph > 0 ? cfg.GustMph : 20)).MaxBy(h => h.WindGustMs);
+            if (precip is not null)
+            {
+                var type = precip.PrecipType.Length > 0 ? char.ToUpperInvariant(precip.PrecipType[0]) + precip.PrecipType[1..] : "Rain";
+                text = $"{type} likely {precip.Time:h tt}";
+            }
+            else if (gusty is not null)
+                text = $"Gusts to {_wx.Speed(gusty.WindGustMs)} {gusty.Time:h tt}";
+            else if (o.Daily.FirstOrDefault(d => d.Date == now.Date) is { } today)
+                text = now.Hour < 15 ? $"High {_wx.Temp(today.HighC)} today" : $"Low {_wx.Temp(o.Daily.ElementAtOrDefault(1)?.LowC ?? today.LowC)} tonight";
+        }
+        WeatherTileNext.Text = text ?? "";
+        WeatherTileNext.Visibility = text is null ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    // ---- Weather alerts: Activity feed always; popup, chime and voice per settings (no sound in quiet hours) ----
+    private WeatherAlerts? _wxAlerts;
+    private DateTime _lastWeatherLook;
+    private bool _popupWeather;
+
+    private void CheckWeatherAlerts()
+    {
+        if (_wxAlerts is null || _tempest is null) return;
+        foreach (var a in _wxAlerts.Observe(_tempest.State, _wxCloud?.Outlook, DateTime.Now)) RaiseWeatherAlert(a);
+        LookForWeatherAlerts(force: false);
+    }
+
+    /// <summary>Forecast-based alerts (rain or snow soon, wind picking up): on each forecast update and every 5 minutes.</summary>
+    private void LookForWeatherAlerts(bool force)
+    {
+        if (_wxAlerts is null || (!force && DateTime.Now - _lastWeatherLook < TimeSpan.FromMinutes(5))) return;
+        _lastWeatherLook = DateTime.Now;
+        foreach (var a in _wxAlerts.Look(_tempest?.State, _wxCloud?.Outlook, DateTime.Now)) RaiseWeatherAlert(a);
+    }
+
+    private void RaiseWeatherAlert(WeatherAlert a)
+    {
+        AddFeedEvent(MotionEvent.House("weather", "Weather", a.Title, a.Glyph, DateTime.Now, a.Detail, alert: true));
+        var cfg = _settings.Weather.Alerts;
+        var hour = DateTime.Now.Hour;
+        var quiet = cfg.QuietFrom > cfg.QuietUntil
+            ? hour >= cfg.QuietFrom || hour < cfg.QuietUntil
+            : hour >= cfg.QuietFrom && hour < cfg.QuietUntil;
+
+        var shown = false;
+        if (cfg.Popup && PairingPage.Visibility != Visibility.Visible && (EventPopup.Visibility == Visibility.Visible || !KioskIsBusy))
+        {
+            _popupEvent = null;
+            _popupJoinUrl = null;
+            _popupWeather = true;
+            EventPopupTitle.Text = a.Title;
+            EventPopupWhen.Text = $"Weather · {DateTime.Now:h:mm tt}";
+            EventPopupAi.Text = a.Detail;
+            EventPopupImage.Source = null;
+            EventPopupImage.Visibility = Visibility.Collapsed;
+            EventPopupAction.Visibility = Visibility.Visible;
+            EventPopupActionText.Text = "Weather";
+            EventPopupActionIcon.Glyph = a.Glyph;
+            EventPopup.Visibility = Visibility.Visible;
+            StartPopupCountdown(a.Serious ? 180 : 60);
+            shown = true;
+        }
+        if (quiet) return;
+        if (cfg.Speak && _voice is not null && !Assistant.IsBusy && _briefSpeech is null) _ = SayAsync(a.Spoken);
+        else if (shown) PlayChime();
     }
 
     private void UpdateWeather()
@@ -1399,6 +1527,8 @@ public sealed partial class MainWindow : Window
 
     private void UpdateWeatherStatus()
     {
+        // When the hour turns, the strip's "Now" and the tile's look-ahead move on.
+        if (DateTime.Now.Date.AddHours(DateTime.Now.Hour) != _forecastDrawnHour) RefreshForecastView();
         if (_tempest?.State.LastObservation is not DateTime last) return;
         var age = DateTime.Now - last;
         var stale = age > TimeSpan.FromMinutes(5);
@@ -1497,7 +1627,8 @@ public sealed partial class MainWindow : Window
         activity = _events.Take(80).Select(e => new
         {
             id = e.Id, camera = e.CameraName, kind = e.Label, start = e.Start, active = e.IsActive, duration = e.DurationText,
-            ai = e.VerdictText, attention = e.Verdict?.AttentionLabel ?? (e.Alert ? "Look now" : ""), alert = e.Alert, source = e.Source, cleared = e.Cleared,
+            ai = e.VerdictText, attention = e.Verdict?.AttentionLabel ?? (e.Alert ? (e.Source == "weather" ? "Weather alert" : "Look now") : ""),
+            alert = e.Alert, source = e.Source, cleared = e.Cleared, detail = e.Detail,
             snapshots = e.Snapshots.ToArray(),
         }),
     };
