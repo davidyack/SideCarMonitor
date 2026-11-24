@@ -356,26 +356,14 @@ public sealed class LinkedInFeed
     public SideCarTasks.TaskService? Tasks { get; set; }
     public string Interests { get; set; } = "startups, AI, Microsoft, product management";
 
-    /// <summary>
-    /// Interrupt: you said something (e.g. "follow up with Jukka on the Dataverse thing") while the episode was at
-    /// <paramref name="positionSeconds"/>. Saves a to-do titled "LinkedIn Follow up - ..." (as you) whose details
-    /// reference the story playing then: the part of the briefing, who posted it, what they said, and the link.
-    /// </summary>
-    public Task<string> InterruptAsync(string said, double positionSeconds)
+    /// <summary>Tag: a "LinkedIn Followup: ..." to-do linked to the post playing; what you said becomes a note on it.</summary>
+    public Task<string> TagAsync(string said, double positionSeconds)
     {
         if (Tasks is null) return Task.FromResult("The to-do list isn't available.");
         var segment = State.PodcastSegments.LastOrDefault(s => s.Start <= positionSeconds + 0.5) ?? State.PodcastSegments.FirstOrDefault();
-        var posts = (segment?.PostIds ?? []).Select(id => State.Posts.GetValueOrDefault(id)).Where(p => p is not null).Select(p => p!).ToList();
-        var at = TimeSpan.FromSeconds(positionSeconds);
-        var what = said.Trim().TrimEnd('.');
-        if (what.Length > 0) what = char.ToUpper(what[0]) + what[1..];
-        var title = $"LinkedIn Follow up - {Trim(what, 110)}";
-        var details = $"Said during the LinkedIn briefing of {State.PodcastAt:ddd MMM d} at {(int)at.TotalMinutes}:{at.Seconds:00}.\n" +
-                      (segment is null ? "" : $"\nBriefing: \"{Trim(segment.Text, 400)}\"\n") +
-                      string.Concat(posts.Select(p => $"\n{p.Author} ({p.Headline}): \"{Trim(p.Text, 300)}\"\n{p.Link}\n"));
-        Tasks.Add(SideCarTasks.Actor.User, title, details: details, date: DateOnly.FromDateTime(DateTime.Today));
-        SystemEvents.Report("To-do from the LinkedIn briefing", title);
-        return Task.FromResult($"Saved to-do: {title}");
+        var posts = (segment?.PostIds ?? []).Select(id => State.Posts.GetValueOrDefault(id)).Where(p => p is not null)
+            .Select(p => new BriefingTag.Post(p!.Author, p.Text, p.Link)).ToList();
+        return Task.FromResult(BriefingTag.Save(Tasks, _agent, "LinkedIn", "li-", said, positionSeconds, State.PodcastAt, segment?.Text, posts));
     }
 
     /// <summary>"Done" on an episode: its posts leave Signal/Noise (they stay on profiles).</summary>

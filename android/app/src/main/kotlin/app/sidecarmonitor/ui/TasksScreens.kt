@@ -155,6 +155,12 @@ fun TaskDetailScreen(state: UiState, onAction: (String, Map<String, Any?>) -> Un
                 if (t.status == "Done") add("Done")
             }
             Text(meta.joinToString(" · "), color = if (t.overdue) SideCarColors.Alert else SideCarColors.Muted, fontSize = 15.sp)
+            d.link?.takeIf { it.startsWith("https://") || it.startsWith("http://") }?.let { link ->
+                val uri = androidx.compose.ui.platform.LocalUriHandler.current
+                TaskButton("↗ Open item" + (d.linkLabel?.let { " ($it)" } ?: ""), SideCarColors.Cobalt) {
+                    runCatching { uri.openUri(link) }
+                }
+            }
             d.details?.let { Text(it, fontSize = 16.sp) }
             state.taskMessage?.let { Banner(it, SideCarColors.Steel) }
 

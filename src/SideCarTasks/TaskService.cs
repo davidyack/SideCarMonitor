@@ -82,7 +82,8 @@ public sealed class TaskService
     // ---- Changes you make (UI, or the assistant acting on your explicit request) -------------
 
     public TaskItem Add(Actor actor, string title, string? details = null, Priority priority = Priority.Medium,
-                        DateOnly? date = null, DateKind dateType = DateKind.Flexible, bool pinToday = false)
+                        DateOnly? date = null, DateKind dateType = DateKind.Flexible, bool pinToday = false,
+                        string? link = null, string? linkLabel = null)
     {
         if (string.IsNullOrWhiteSpace(title)) throw new TaskRuleException("A task needs a title.");
         return _store.Update(actor, d =>
@@ -93,6 +94,8 @@ public sealed class TaskService
                 Id = NewTaskId(d),
                 Title = title.Trim(),
                 Details = string.IsNullOrWhiteSpace(details) ? null : details.Trim(),
+                Link = string.IsNullOrWhiteSpace(link) ? null : link.Trim(),
+                LinkLabel = string.IsNullOrWhiteSpace(link) || string.IsNullOrWhiteSpace(linkLabel) ? null : linkLabel.Trim(),
                 Priority = priority,
                 Date = date,
                 DateType = date is null ? DateKind.Flexible : dateType,

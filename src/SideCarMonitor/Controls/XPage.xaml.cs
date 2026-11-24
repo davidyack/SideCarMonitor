@@ -10,7 +10,7 @@ namespace SideCarMonitor.Controls;
 /// <summary>
 /// X: Signal / Noise / Saved, Update (up to 100 new posts), per post Noise / Not noise, Save (bookmark on X), Replies
 /// (insight analysis), Unfollow (with confirm) and Open. Right side: the briefing card, the list builder, or a post's
-/// reply insights. Header: Play briefing; while playing Pause / Interrupt / Done.
+/// reply insights. Header: Play briefing; while playing Pause / Tag / Done.
 /// </summary>
 public sealed partial class XPage : UserControl
 {
@@ -303,7 +303,7 @@ public sealed partial class XPage : UserControl
         }
         BriefingBar.Children.Add(Playing ? BarButton("", "Pause", "TileCobalt", () => { _player!.Pause(); RenderBriefingBar(); })
                                          : BarButton("", "Play", "TileCobalt", () => { _player!.Play(); RenderBriefingBar(); }));
-        BriefingBar.Children.Add(BarButton("", _listening ? "Listening…" : "Interrupt", "TileAmber", () => _ = InterruptAsync()));
+        BriefingBar.Children.Add(BarButton("", _listening ? "Listening…" : "Tag", "TileAmber", () => _ = TagAsync()));
         BriefingBar.Children.Add(BarButton("", "Done", "TileEmerald", () => { _player?.Pause(); _player?.Dispose(); _player = null; _clock?.Stop(); _note = $"Cleared {_feed.ClearPodcastPosts()} posts from the feed"; Render(false); }));
         var pos = _player!.PlaybackSession.Position; var len = _player.PlaybackSession.NaturalDuration;
         BriefingBar.Children.Add(new TextBlock { Text = $"{(int)pos.TotalMinutes}:{pos.Seconds:00} / {(int)len.TotalMinutes}:{len.Seconds:00}", FontSize = Font("FontCaption"), Foreground = Res<Brush>("MutedText"), VerticalAlignment = VerticalAlignment.Center });
@@ -333,16 +333,16 @@ public sealed partial class XPage : UserControl
 
     private void Tick(object? sender, object e) { if (Visibility == Visibility.Visible) RenderBriefingBar(); }
 
-    private async Task InterruptAsync()
+    private async Task TagAsync()
     {
         if (_player is null || _feed?.Voice is null || _listening) return;
         var position = _player.PlaybackSession.Position.TotalSeconds;
         _player.Pause(); _listening = true;
-        _note = "Listening… say what to follow up on"; UpdateSubtitle(); RenderBriefingBar();
+        _note = "Tagged — add a note, or stay quiet"; UpdateSubtitle(); RenderBriefingBar();
         try
         {
             var said = await _feed.Voice.ListenOnceAsync(partial => DispatcherQueue.TryEnqueue(() => { _note = $"“{partial}”"; UpdateSubtitle(); }), CancellationToken.None);
-            _note = string.IsNullOrWhiteSpace(said) ? "Didn't catch that" : await _feed.InterruptAsync(said, position);
+            _note = await _feed.TagAsync(said ?? "", position);
         }
         catch (Exception ex) { _note = $"Couldn't save that: {ex.Message}"; }
         _listening = false;

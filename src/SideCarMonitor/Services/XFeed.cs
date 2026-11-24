@@ -303,22 +303,14 @@ public sealed class XFeed(XClient x, EventJudge? decision, AgentHost? agent)
         finally { Progress?.Invoke(""); _gate.Release(); }
     }
 
-    /// <summary>Interrupt: saves "X Follow up - ..." referencing the story playing, as your own to-do.</summary>
-    public Task<string> InterruptAsync(string said, double positionSeconds)
+    /// <summary>Tag: an "X Followup: ..." to-do linked to the post playing; what you said becomes a note on it.</summary>
+    public Task<string> TagAsync(string said, double positionSeconds)
     {
         if (Tasks is null) return Task.FromResult("The to-do list isn't available.");
         var seg = State.PodcastSegments.LastOrDefault(s => s.Start <= positionSeconds + 0.5) ?? State.PodcastSegments.FirstOrDefault();
-        var posts = (seg?.PostIds ?? []).Select(id => State.Posts.GetValueOrDefault(id)).Where(p => p is not null).Select(p => p!).ToList();
-        var at = TimeSpan.FromSeconds(positionSeconds);
-        var what = said.Trim().TrimEnd('.');
-        if (what.Length > 0) what = char.ToUpper(what[0]) + what[1..];
-        var title = $"X Follow up - {Trim(what, 110)}";
-        var details = $"Said during the X briefing of {State.PodcastAt:ddd MMM d} at {(int)at.TotalMinutes}:{at.Seconds:00}.\n" +
-                      (seg is null ? "" : $"\nBriefing: \"{Trim(seg.Text, 400)}\"\n") +
-                      string.Concat(posts.Select(p => $"\n{p.Author} (@{p.Username}): \"{Trim(p.Text, 300)}\"\n{p.Link}\n"));
-        Tasks.Add(SideCarTasks.Actor.User, title, details: details, date: DateOnly.FromDateTime(DateTime.Today));
-        SystemEvents.Report("To-do from the X briefing", title);
-        return Task.FromResult($"Saved to-do: {title}");
+        var posts = (seg?.PostIds ?? []).Select(id => State.Posts.GetValueOrDefault(id)).Where(p => p is not null)
+            .Select(p => new BriefingTag.Post($"{p!.Author} (@{p.Username})", p.Text, p.Link)).ToList();
+        return Task.FromResult(BriefingTag.Save(Tasks, agent, "X", "xr-", said, positionSeconds, State.PodcastAt, seg?.Text, posts));
     }
 
     public int ClearPodcastPosts()

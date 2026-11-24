@@ -384,6 +384,12 @@ public sealed partial class TasksPage : UserControl
         _titleBox = new TextBox { Text = t.Title, FontSize = Num("FontTitle"), MinHeight = Num("TouchTarget"), TextWrapping = TextWrapping.Wrap };
         _titleBox.TextChanged += (_, _) => MarkDirty();
         Detail.Children.Add(_titleBox);
+        // The item this to-do is about (e.g. the post tagged in a briefing): one tap opens it.
+        if (t.Link is { Length: > 0 } link && Uri.TryCreate(link, UriKind.Absolute, out var linkUri) && linkUri.Scheme is "https" or "http")
+            Detail.Children.Add(ButtonRow(($"↗  Open item{(t.LinkLabel is { } l ? $" ({l})" : "")}", "TileCobalt", () =>
+            {
+                try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(linkUri.AbsoluteUri) { UseShellExecute = true }); } catch { }
+            })));
         _detailsBox = new TextBox
         {
             Text = t.Details ?? "", PlaceholderText = "Details", FontSize = Num("FontBody"), AcceptsReturn = true,

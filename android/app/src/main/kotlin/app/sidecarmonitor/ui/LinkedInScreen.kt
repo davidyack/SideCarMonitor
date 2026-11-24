@@ -165,9 +165,9 @@ private fun PersonView(vm: AppViewModel, url: String, onBack: () -> Unit) {
 
 
 /**
- * Briefing (audio) bar: one big Play; while playing, Pause / Interrupt / Done and the time. The episode is made on the
- * kiosk (Play prepares one first if needed). Interrupt pauses, records what you say, saves a "LinkedIn Follow up - ..."
- * to-do about the story playing, and resumes on its own. Done clears the episode's posts from the feed.
+ * Briefing (audio) bar: one big Play; while playing, Pause / Tag / Done and the time. The episode is made on the
+ * kiosk (Play prepares one first if needed). Tag pauses, saves a "LinkedIn Followup: ..." to-do linked to the post, records your
+ * note on it, and resumes on its own. Done clears the episode's posts from the feed.
  */
 @Composable
 private fun BriefingBar(vm: AppViewModel, info: LinkedInInfo, onChanged: () -> Unit) {
@@ -231,12 +231,12 @@ private fun BriefingBar(vm: AppViewModel, info: LinkedInInfo, onChanged: () -> U
                 Big(if (playing) "\u23F8 Pause" else "\u25B6 Play", LinkedInBlue, Modifier.weight(1f)) {
                     player?.let { if (playing) { it.pause(); playing = false } else { it.start(); playing = true } }
                 }
-                Big(if (listening) "Listening\u2026" else "\u270B Interrupt", SideCarColors.Amber, Modifier.weight(1.2f)) {
+                Big(if (listening) "Listening\u2026" else "\uD83C\uDFF7 Tag", SideCarColors.Amber, Modifier.weight(1.2f)) {
                     if (listening) return@Big
                     scope.launch {
                         val mp = player ?: return@launch
                         mp.pause(); playing = false; listening = true
-                        note = "Listening\u2026 say what to follow up on"
+                        note = "Tagged \u2014 add a note, or stay quiet"
                         note = vm.podcastInterrupt(mp.currentPosition / 1000.0) { heard -> note = "\u201C$heard\u201D \u2026 saving" }
                         listening = false
                         mp.start(); playing = true // resume right away

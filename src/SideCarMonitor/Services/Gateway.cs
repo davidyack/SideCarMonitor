@@ -132,8 +132,10 @@ public sealed class Gateway : IAsyncDisposable
         app.MapGet("/api/x/podcast/audio", () => X is { } x && File.Exists(x.PodcastPath)
             ? Results.File(File.ReadAllBytes(x.PodcastPath), "audio/wav", enableRangeProcessing: true) : Results.NotFound());
         app.MapPost("/api/x/podcast/clear", () => X is { } x ? Results.Ok(new { cleared = x.ClearPodcastPosts() }) : Results.NotFound());
-        app.MapPost("/api/x/podcast/interrupt", async (JsonObject b) => X is { } x
-            ? Results.Ok(new { reply = await x.InterruptAsync(b["text"]?.GetValue<string>() ?? "", b["position"]?.GetValue<double>() ?? 0) }) : Results.NotFound());
+        // Tag (was Interrupt; the old path stays for phones not yet updated).
+        foreach (var path in new[] { "/api/x/podcast/tag", "/api/x/podcast/interrupt" })
+            app.MapPost(path, async (JsonObject b) => X is { } x
+                ? Results.Ok(new { reply = await x.TagAsync(b["text"]?.GetValue<string>() ?? "", b["position"]?.GetValue<double>() ?? 0) }) : Results.NotFound());
     }
 
     private void MapCalendar(WebApplication app)
@@ -249,15 +251,11 @@ public sealed class Gateway : IAsyncDisposable
             LinkedIn is { } li && File.Exists(li.PodcastPath)
                 ? Results.File(File.ReadAllBytes(li.PodcastPath), "audio/wav", enableRangeProcessing: true)
                 : Results.NotFound());
-        // Interrupt from the phone: what you said (already transcribed) and where the episode was.
-        app.MapPost("/api/linkedin/podcast/interrupt", async (JsonObject body) =>
-        {
-            if (LinkedIn is not { } li) return Results.NotFound();
-            var said = body["text"]?.GetValue<string>() ?? "";
-            if (said.Trim().Length == 0) return Results.BadRequest(new { error = "Nothing said" });
-            var reply = await li.InterruptAsync(said, body["position"]?.GetValue<double>() ?? 0);
-            return Results.Ok(new { reply });
-        });
+        // Tag from the phone: what you said after tapping Tag (already transcribed, may be empty) and where the episode was.
+        foreach (var path in new[] { "/api/linkedin/podcast/tag", "/api/linkedin/podcast/interrupt" })
+            app.MapPost(path, async (JsonObject body) => LinkedIn is { } li
+                ? Results.Ok(new { reply = await li.TagAsync(body["text"]?.GetValue<string>() ?? "", body["position"]?.GetValue<double>() ?? 0) })
+                : Results.NotFound());
         app.MapPost("/api/linkedin/podcast/clear", () =>
         {
             if (LinkedIn is not { } li) return Results.NotFound();
@@ -555,6 +553,8 @@ public sealed class Gateway : IAsyncDisposable
     {
         row = TaskRow(t, x),
         details = x.Details,
+        link = x.Link,
+        linkLabel = x.LinkLabel,
         version = x.Version,
         needsDecision = t.NeedsDecision(x),
         rolloverPaused = x.RolloverPaused,

@@ -215,11 +215,11 @@ class SideCarClient(private val pairing: Pairing) {
     suspend fun linkedInPodcastPrepare() = postJson("/api/linkedin/podcast", buildJsonObject { })
     suspend fun linkedInPodcastClear() = postJson("/api/linkedin/podcast/clear", buildJsonObject { })
 
-    /** Interrupt: what you said and where the episode was; returns SideCar's short confirmation. */
+    /** Tag: what you said after tapping Tag (may be empty) and where the episode was; returns SideCar's short confirmation. */
     suspend fun linkedInPodcastInterrupt(text: String, positionSeconds: Double): String = withContext(Dispatchers.IO) {
         val body = buildJsonObject { put("text", text); put("position", positionSeconds) }.toString()
             .toRequestBody("application/json".toMediaType())
-        call(Request.Builder().url("$base/api/linkedin/podcast/interrupt").post(body).build()).use {
+        call(Request.Builder().url("$base/api/linkedin/podcast/tag").post(body).build()).use {
             json.parseToJsonElement(it.body.string()).jsonObject["reply"]?.jsonPrimitive?.content ?: "Saved"
         }
     }
@@ -256,7 +256,7 @@ class SideCarClient(private val pairing: Pairing) {
     suspend fun xPodcastAudio(): ByteArray = withContext(Dispatchers.IO) { call(Request.Builder().url("$base/api/x/podcast/audio").build()).use { it.body.bytes() } }
     suspend fun xPodcastInterrupt(text: String, positionSeconds: Double): String = withContext(Dispatchers.IO) {
         val body = buildJsonObject { put("text", text); put("position", positionSeconds) }.toString().toRequestBody("application/json".toMediaType())
-        call(Request.Builder().url("$base/api/x/podcast/interrupt").post(body).build()).use {
+        call(Request.Builder().url("$base/api/x/podcast/tag").post(body).build()).use {
             json.parseToJsonElement(it.body.string()).jsonObject["reply"]?.jsonPrimitive?.content ?: "Saved"
         }
     }

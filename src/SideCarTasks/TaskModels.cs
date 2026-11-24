@@ -24,6 +24,13 @@ public sealed class TaskItem
     public string Id { get; set; } = "";
     public string Title { get; set; } = "";
     public string? Details { get; set; }
+
+    /// <summary>The item this to-do is about (e.g. the LinkedIn or X post tagged in a briefing); shown as "Open item".</summary>
+    public string? Link { get; set; }
+
+    /// <summary>What the link opens, e.g. "X post" or "LinkedIn post".</summary>
+    public string? LinkLabel { get; set; }
+
     public Priority Priority { get; set; } = Priority.Medium;
     public TodoStatus Status { get; set; } = TodoStatus.Open;
     public DateOnly? Date { get; set; }

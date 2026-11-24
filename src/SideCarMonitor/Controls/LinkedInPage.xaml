@@ -30,7 +30,7 @@
                 <TextBlock Text="LinkedIn" FontSize="{StaticResource FontTitle}" FontWeight="SemiBold" />
                 <TextBlock x:Name="SubtitleText" FontSize="{StaticResource FontCaption}" Foreground="{StaticResource MutedText}" TextTrimming="CharacterEllipsis" />
             </StackPanel>
-            <!-- Briefing: one big Play; while playing, Pause / Interrupt / Done -->
+            <!-- Briefing: one big Play; while playing, Pause / Tag / Done -->
             <StackPanel x:Name="BriefingBar" Grid.Column="2" Orientation="Horizontal" Spacing="{StaticResource SmallGap}" Margin="0,0,16,0" />
             <StackPanel x:Name="Tabs" Grid.Column="3" Orientation="Horizontal" Spacing="{StaticResource SmallGap}">
                 <Button x:Name="SignalTab" Tag="signal" Click="Tab_Click" FontSize="{StaticResource FontBody}" Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}" />

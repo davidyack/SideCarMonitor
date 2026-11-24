@@ -178,7 +178,7 @@ private fun AnalysisView(vm: AppViewModel, p: XPost, onBack: () -> Unit) {
 
 /**
  * Briefing bar for any feed: one big Play briefing (prepares a fresh one when there's news); while playing
- * Pause / Interrupt / Done and a seek bar. Interrupt records, saves a follow-up to-do and resumes.
+ * Pause / Tag / Done and a seek bar. Tag saves a follow-up to-do linked to the post, records your note and resumes.
  */
 @Composable
 fun BriefingBarFor(
@@ -242,12 +242,12 @@ fun BriefingBarFor(
                 Big(if (playing) "⏸ Pause" else "▶ Play", SideCarColors.Cobalt, Modifier.weight(1f)) {
                     player?.let { if (playing) { it.pause(); playing = false } else { it.start(); playing = true } }
                 }
-                Big(if (listening) "Listening…" else "✋ Interrupt", SideCarColors.Amber, Modifier.weight(1.2f)) {
+                Big(if (listening) "Listening…" else "🏷 Tag", SideCarColors.Amber, Modifier.weight(1.2f)) {
                     if (listening) return@Big
                     scope.launch {
                         val mp = player ?: return@launch
                         mp.pause(); playing = false; listening = true
-                        note = "Listening… say what to follow up on"
+                        note = "Tagged — add a note, or stay quiet"
                         note = interrupt(mp.currentPosition / 1000.0) { heard -> note = "“$heard” … saving" }
                         listening = false; mp.start(); playing = true
                     }

@@ -41,6 +41,9 @@ data class TaskRow(
 data class TaskDetail(
     val row: TaskRow,
     val details: String? = null,
+    /** The item this to-do is about (e.g. the post tagged in a briefing), opened by "Open item". */
+    val link: String? = null,
+    val linkLabel: String? = null,
     val version: Int = 0,
     val needsDecision: Boolean = false,
     val rolloverPaused: Boolean = false,

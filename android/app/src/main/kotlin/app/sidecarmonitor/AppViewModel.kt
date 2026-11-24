@@ -150,13 +150,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** The paired kiosk connection, for screens that call it directly (X, calendar, briefs). */
     val kiosk: app.sidecarmonitor.data.SideCarClient? get() = client
 
-    /** Podcast Interrupt for X: record, transcribe on the kiosk, save "X Follow up - ...". */
+    /** Briefing Tag for X: save an "X Followup: ..." to-do linked to the post; what you say next becomes its note. */
     suspend fun xInterrupt(positionSeconds: Double, onHeard: (String) -> Unit): String {
         val c = client ?: return "Not connected"
         val wav = app.sidecarmonitor.data.VoiceRecorder().record()
-        val said = runCatching { c.listen(wav) }.getOrElse { return "Couldn't hear that: ${it.message}" }
-        if (said.isBlank()) return "Didn't catch that"
-        onHeard(said)
+        val said = runCatching { c.listen(wav) }.getOrDefault("") // nothing heard: still tag, just without a note
+        if (said.isNotBlank()) onHeard(said)
         return runCatching { c.xPodcastInterrupt(said, positionSeconds) }.getOrElse { "Couldn't save that: ${it.message}" }
     }
 
@@ -167,13 +166,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun linkedInPodcastPrepare(): String? = client?.linkedInPodcastPrepare() ?: "Not connected"
     suspend fun linkedInPodcastClear(): String? = client?.linkedInPodcastClear() ?: "Not connected"
 
-    /** Podcast Interrupt: record what you say (stops when you pause), have the kiosk transcribe it, and save it. */
+    /** Briefing Tag for LinkedIn: save a "LinkedIn Followup: ..." to-do linked to the post; what you say next becomes its note. */
     suspend fun podcastInterrupt(positionSeconds: Double, onHeard: (String) -> Unit): String {
         val c = client ?: return "Not connected"
         val wav = app.sidecarmonitor.data.VoiceRecorder().record()
-        val said = runCatching { c.listen(wav) }.getOrElse { return "Couldn't hear that: ${it.message}" }
-        if (said.isBlank()) return "Didn't catch that"
-        onHeard(said)
+        val said = runCatching { c.listen(wav) }.getOrDefault("") // nothing heard: still tag, just without a note
+        if (said.isNotBlank()) onHeard(said)
         return runCatching { c.linkedInPodcastInterrupt(said, positionSeconds) }.getOrElse { "Couldn't save that: ${it.message}" }
     }
     suspend fun linkedInPodcastAudio(): ByteArray? = runCatching { client?.linkedInPodcastAudio() }.getOrNull()

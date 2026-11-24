@@ -133,7 +133,7 @@ public sealed partial class LinkedInPage : UserControl
     private TextBlock Heading(string text) =>
         new() { Text = text, FontSize = Font("FontTitle"), FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap };
 
-    // ---- Briefing (audio): one big Play in the header; while playing, Pause / Interrupt / Done ----
+    // ---- Briefing (audio): one big Play in the header; while playing, Pause / Tag / Done ----
     private Windows.Media.Playback.MediaPlayer? _player;
     private DateTime? _playerEpisode;
     private DispatcherTimer? _clock;
@@ -179,7 +179,7 @@ public sealed partial class LinkedInPage : UserControl
         }
         BriefingBar.Children.Add(Playing ? BarButton("\uE769", "Pause", "TileCobalt", () => { _player!.Pause(); RenderBriefingBar(); })
                                          : BarButton("\uE768", "Play", "TileCobalt", () => { _player!.Play(); RenderBriefingBar(); }));
-        BriefingBar.Children.Add(BarButton("\uE720", _listening ? "Listening\u2026" : "Interrupt", "TileAmber", () => _ = InterruptAsync()));
+        BriefingBar.Children.Add(BarButton("", _listening ? "Listening\u2026" : "Tag", "TileAmber", () => _ = TagAsync()));
         BriefingBar.Children.Add(BarButton("\uE73E", "Done", "TileEmerald", () =>
         {
             StopBriefing();
@@ -241,19 +241,19 @@ public sealed partial class LinkedInPage : UserControl
         _clock?.Stop();
     }
 
-    /// <summary>Pause, listen, save a "LinkedIn Follow up - ..." to-do about the story playing, then resume on its own.</summary>
-    private async Task InterruptAsync()
+    /// <summary>Tag: pause, save a "LinkedIn Followup: ..." to-do linked to the post playing, add what you say as a note, resume.</summary>
+    private async Task TagAsync()
     {
         if (_player is null || _feed?.Voice is null || _listening) return;
         var position = _player.PlaybackSession.Position.TotalSeconds;
         _player.Pause();
         _listening = true;
-        _briefingNote = "Listening\u2026 say what to follow up on";
+        _briefingNote = "Tagged \u2014 add a note, or stay quiet";
         Render(keepScroll: true);
         try
         {
             var said = await _feed.Voice.ListenOnceAsync(partial => DispatcherQueue.TryEnqueue(() => { _briefingNote = $"\u201C{partial}\u201D"; UpdateSubtitleNote(); }), CancellationToken.None);
-            _briefingNote = string.IsNullOrWhiteSpace(said) ? "Didn't catch that" : await _feed.InterruptAsync(said, position);
+            _briefingNote = await _feed.TagAsync(said ?? "", position);
         }
         catch (Exception ex) { _briefingNote = $"Couldn't save that: {ex.Message}"; }
         _listening = false;
