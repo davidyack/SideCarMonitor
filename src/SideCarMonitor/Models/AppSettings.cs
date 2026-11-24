@@ -102,6 +102,11 @@ public sealed class WeatherSettings
     /// <summary>"imperial" (F, mph, in, inHg) or "metric".</summary>
     public string Units { get; set; } = "imperial";
     public bool Imperial => !Units.Equals("metric", StringComparison.OrdinalIgnoreCase);
+    /// <summary>WeatherFlow personal access token (tempestwx.com > Settings > Data Authorizations) for the
+    /// hourly/daily forecast and the station's history. Empty = local broadcasts only.</summary>
+    public string TempestToken { get; set; } = "";
+    /// <summary>Which station to use when the account has several; null = the first one.</summary>
+    public int? TempestStationId { get; set; }
 }
 
 public sealed class DisplaySettings

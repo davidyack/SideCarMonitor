@@ -117,6 +117,18 @@ var weatherTool = CopilotTool.DefineTool(
     new CopilotToolOptions { SkipPermission = true, Idempotent = true },
     new AIFunctionFactoryOptions { Name = "get_local_weather" });
 
+var forecastTool = CopilotTool.DefineTool(
+    [Description("Weather forecast for the user's home (WeatherFlow, for their own Tempest station's location): hour by hour " +
+                 "for up to ~9 days and by day for up to 10, with highlights (low/high, strongest gusts, best chance of rain or " +
+                 "snow, freeze). Can also return the station's own readings for the past hours. Use for anything about later today, " +
+                 "tonight, tomorrow or the coming days, or what the weather did earlier.")]
+    async ([Description("Forecast hours to return, starting now (default 24, max 220)")] int hours = 24,
+           [Description("Forecast days to return, starting today (default 3, max 10)")] int days = 3,
+           [Description("Past hours of the station's own readings (default 0, max 24)")] int pastHours = 0) =>
+        await AskHostAsync("get_weather_forecast", new { hours, days, pastHours }),
+    new CopilotToolOptions { SkipPermission = true, Idempotent = true },
+    new AIFunctionFactoryOptions { Name = "get_weather_forecast" });
+
 // ---- To-do list (the kiosk's task store is the source of truth; it enforces the rules) -----
 AIFunction HostTool(string name, Delegate fn) =>
     CopilotTool.DefineTool(fn, new CopilotToolOptions { SkipPermission = true }, new AIFunctionFactoryOptions { Name = name });
@@ -366,6 +378,8 @@ await using var session = await client.CreateSessionAsync(new CreateSessionOptio
             bare URL, and don't spell out web addresses in sentences; say "the link on screen" if you need to point to it.
             For questions about the weather at home (outside, temperature, wind, rain), call get_local_weather
             and answer from it. It's the user's own weather station, so prefer it over general knowledge.
+            For anything later (tonight, tomorrow, this week) or earlier today, call get_weather_forecast; ask for
+            only the hours and days you need. Prefer it over web_search for the weather at home.
 
             Memory: you have four kinds; use them naturally without announcing it.
             - Working memory (get/set_working_memory): notes for a multi-step task in progress.
@@ -422,8 +436,8 @@ await using var session = await client.CreateSessionAsync(new CreateSessionOptio
     // Only our own host-answered tools. No built-in tools (shell, files) until we decide on them together.
     Tools = new SessionToolOptions
     {
-        AvailableTools = ["get_local_weather", .. memoryToolNames, .. taskToolNames, .. homeToolNames, .. calendarToolNames, .. reminderToolNames, .. flightToolNames, .. webToolNames],
-        Definitions = [weatherTool, .. memoryTools, .. taskTools, .. homeTools, .. calendarTools, .. reminderTools, .. flightTools, .. webTools],
+        AvailableTools = ["get_local_weather", "get_weather_forecast", .. memoryToolNames, .. taskToolNames, .. homeToolNames, .. calendarToolNames, .. reminderToolNames, .. flightToolNames, .. webToolNames],
+        Definitions = [weatherTool, forecastTool, .. memoryTools, .. taskTools, .. homeTools, .. calendarTools, .. reminderTools, .. flightTools, .. webTools],
     },
     Permissions = new SessionPermissionOptions
     {

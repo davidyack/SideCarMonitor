@@ -20,6 +20,7 @@ public sealed partial class MainWindow : Window
     private readonly WeatherFormat _wx;
     private MotionMonitor? _monitor;
     private TempestListener? _tempest;
+    private TempestCloud? _wxCloud;
     private AgentHost? _agent;
     private Gateway? _gateway;
     private SideCarTasks.TaskService? _taskService;
@@ -820,6 +821,7 @@ public sealed partial class MainWindow : Window
             ["now"] = now.ToString("dddd MMMM d, h:mm tt"),
             ["kind"] = kind,
             ["weather_now"] = J(weather),
+            ["weather_coming"] = J(WeatherOutlookForBrief(morning)),
             [morning ? "meetings_today" : "meetings_tomorrow"] = J(events),
             ["todos"] = J(tasks),
             [morning ? "activity_overnight" : "activity_today"] = J(activity),
@@ -1147,6 +1149,8 @@ public sealed partial class MainWindow : Window
         _agent.ToolHandler = call => call.Name switch
         {
             "get_local_weather" => Task.FromResult<object?>(LocalWeatherForAgent()),
+            "get_weather_forecast" => Task.FromResult<object?>(WeatherForecastForAgent(
+                ArgInt(call, "hours", 24, 0, 220), ArgInt(call, "days", 3, 0, 10), ArgInt(call, "pastHours", 0, 0, 24))),
             "flight_search" => FlightSearchAsync(call),
             "web_search" => WebSearchAsync(call),
             _ when call.Name.StartsWith("reminder_") => Task.FromResult<object?>(_reminders?.Handle(call, _agent?.TurnText(call.Turn)) ?? new { error = "Reminders aren't available." }),
@@ -1191,7 +1195,10 @@ public sealed partial class MainWindow : Window
             dewPoint = _wx.Temp(s.DewPointC),
             wind = $"{_wx.Speed(s.RapidWindMs ?? s.WindAvgMs)} from {WeatherFormat.Direction(s.RapidWindDirDeg ?? s.WindDirDeg)}",
             windGust = _wx.Speed(s.WindGustMs),
-            rainToday = _wx.Rain(s.RainTodayMm) + " (counted since the kiosk started)",
+            // The station's own daily total (from the cloud) beats the local count, which only starts with the kiosk.
+            rainToday = _wxCloud?.Outlook?.RainTodayMm is double cloudRain && _wxCloud.Outlook.FetchedAt.Date == DateTime.Today
+                ? _wx.Rain(Math.Max(cloudRain, s.RainTodayMm))
+                : _wx.Rain(s.RainTodayMm) + " (counted since the kiosk started)",
             precipitationNow = WeatherFormat.PrecipText(s.PrecipType) is { Length: > 0 } p ? p : "none",
             pressure = $"{_wx.Pressure(s.StationPressureMb)} station pressure, {_wx.PressureTrend(s.PressureTrendMb)}",
             uvIndex = s.Uv,
@@ -1200,10 +1207,131 @@ public sealed partial class MainWindow : Window
         };
     }
 
+    private static int ArgInt(AgentHost.ToolCall call, string name, int fallback, int min, int max)
+    {
+        var n = call.Args?[name] is System.Text.Json.Nodes.JsonValue v
+            ? v.TryGetValue<int>(out var i) ? i
+            : v.TryGetValue<double>(out var d) ? (int)Math.Round(d)
+            : v.TryGetValue<string>(out var s) && int.TryParse(s, out var p) ? p : fallback
+            : fallback;
+        return Math.Clamp(n, min, max);
+    }
+
+    /// <summary>Forecast (hour by hour and by day) and the station's recent hours, for the get_weather_forecast tool.</summary>
+    private object WeatherForecastForAgent(int hours, int days, int pastHours)
+    {
+        if (_wxCloud is null)
+            return new { error = "The forecast isn't set up (no WeatherFlow token in settings). Only get_local_weather is available." };
+        if (_wxCloud.Outlook is not { } o)
+            return new { error = "No forecast yet" + (_wxCloud.LastError is { } e ? $": {e}" : " (first download in progress).") };
+        var thisHour = DateTime.Now.Date.AddHours(DateTime.Now.Hour);
+        var upcoming = o.Hourly.Where(h => h.Time >= thisHour).Take(hours).ToList();
+        return new
+        {
+            station = $"{o.StationName} (the user's own Tempest station); forecast from WeatherFlow for this exact location",
+            updated = o.FetchedAt.ToString("ddd h:mm tt"),
+            stale = DateTime.Now - o.FetchedAt > TimeSpan.FromHours(2) ? $"Last successful update was {o.FetchedAt:ddd h:mm tt}" : null,
+            rainToday = o.RainTodayMm is double rt ? _wx.Rain(rt) : null,
+            rainYesterday = o.RainYesterdayMm is double ry ? _wx.Rain(ry) : null,
+            highlights = upcoming.Count > 0 ? ForecastHighlights(upcoming) : null,
+            hours = upcoming.Select(ForecastHourLine),
+            days = o.Daily.Take(days).Select(ForecastDayLine),
+            pastHours = pastHours > 0 ? o.PastHours.TakeLast(pastHours).Select(ObservedHourLine) : null,
+        };
+    }
+
+    private string ForecastHourLine(HourForecast h)
+    {
+        var line = $"{h.Time:ddd h tt}: {_wx.Temp(h.TempC)}";
+        if (h.FeelsLikeC is double f && h.TempC is double t && Math.Abs(f - t) >= 2) line += $" (feels {_wx.Temp(f)})";
+        line += $", {h.Conditions}";
+        if (h.PrecipProbability > 0) line += $", {h.PrecipType} {h.PrecipProbability}%" + (h.PrecipMm > 0 ? $" {_wx.Rain(h.PrecipMm.Value)}" : "");
+        line += $", wind {_wx.Speed(h.WindAvgMs)} {WeatherFormat.Direction(h.WindDirDeg)} gusts {_wx.Speed(h.WindGustMs)}";
+        return line;
+    }
+
+    private string ForecastDayLine(DayForecast d) =>
+        $"{d.Date:ddd MMM d}: high {_wx.Temp(d.HighC)}, low {_wx.Temp(d.LowC)}, {d.Conditions}" +
+        (d.PrecipProbability > 0 ? $", {d.PrecipType} {d.PrecipProbability}%" : "");
+
+    private string ObservedHourLine(HourObserved h)
+    {
+        var line = $"{h.Hour:ddd h tt}: {_wx.Temp(h.TempAvgC)} (range {_wx.Temp(h.TempMinC)} to {_wx.Temp(h.TempMaxC)}), " +
+                   $"wind {_wx.Speed(h.WindAvgMs)} gusts to {_wx.Speed(h.GustMaxMs)}";
+        if (h.RainMm > 0) line += $", rain {_wx.Rain(h.RainMm)}";
+        if (h.Strikes > 0) line += $", {h.Strikes} lightning strikes";
+        return line;
+    }
+
+    /// <summary>The few things worth saying about a stretch of forecast hours: low, high, peak wind, best chance of precipitation, freeze.</summary>
+    private List<string> ForecastHighlights(IReadOnlyList<HourForecast> hours)
+    {
+        var list = new List<string>();
+        var temps = hours.Where(h => h.TempC is not null).ToList();
+        if (temps.Count > 0)
+        {
+            var lo = temps.MinBy(h => h.TempC)!;
+            var hi = temps.MaxBy(h => h.TempC)!;
+            list.Add($"Low {_wx.Temp(lo.TempC)} at {lo.Time:ddd h tt}, high {_wx.Temp(hi.TempC)} at {hi.Time:ddd h tt}");
+            if (hi.TempC - lo.TempC is double swing && swing >= 11) // ~20 °F
+            {
+                var degrees = _settings.Weather.Imperial ? $"{swing * 9 / 5:0} °F" : $"{swing:0} °C";
+                list.Add($"Big temperature swing: {degrees} between {lo.Time:ddd h tt} and {hi.Time:ddd h tt}");
+            }
+            if (lo.TempC <= 0) list.Add($"Freezing: first below freezing at {temps.First(h => h.TempC <= 0).Time:ddd h tt}");
+        }
+        if (hours.Where(h => h.WindGustMs is not null).MaxBy(h => h.WindGustMs) is { } w)
+            list.Add($"Strongest gusts {_wx.Speed(w.WindGustMs)} around {w.Time:ddd h tt}");
+        if (hours.MaxBy(h => h.PrecipProbability) is { PrecipProbability: > 0 } p)
+            list.Add($"Best chance of {p.PrecipType}: {p.PrecipProbability}% around {p.Time:ddd h tt}" +
+                     (hours.Sum(h => h.PrecipMm ?? 0) is var total && total > 0 ? $", about {_wx.Rain(total)} total" : ""));
+        return list;
+    }
+
+    /// <summary>Weather for a brief: what's coming (rest of today, or tonight and tomorrow morning) and the last 12 hours.</summary>
+    private object? WeatherOutlookForBrief(bool morning)
+    {
+        if (_wxCloud?.Outlook is not { } o) return null;
+        var now = DateTime.Now;
+        var thisHour = now.Date.AddHours(now.Hour);
+        var until = morning ? now.Date.AddDays(1) : now.Date.AddDays(1).AddHours(12);
+        var hours = o.Hourly.Where(h => h.Time >= thisHour && h.Time < until).ToList();
+        var past = o.PastHours.Where(h => h.Hour >= thisHour.AddHours(-12)).ToList();
+        var pastTemps = past.Where(h => h.TempMinC is not null).ToList();
+        return new
+        {
+            period = morning ? "rest of today" : "tonight and tomorrow morning",
+            highlights = hours.Count > 0 ? ForecastHighlights(hours) : null,
+            hours = hours.Where((h, i) => i % 2 == 0).Select(ForecastHourLine), // every other hour keeps it short
+            nextDays = o.Daily.Where(d => d.Date > now.Date).Take(3).Select(ForecastDayLine),
+            last12Hours = pastTemps.Count == 0 ? null : new
+            {
+                low = _wx.Temp(pastTemps.Min(h => h.TempMinC)),
+                high = _wx.Temp(pastTemps.Max(h => h.TempMaxC)),
+                strongestGust = _wx.Speed(past.Max(h => h.GustMaxMs)),
+                rain = _wx.Rain(past.Sum(h => h.RainMm)),
+                lightningStrikes = past.Sum(h => h.Strikes),
+            },
+            rainToday = o.RainTodayMm is double rt ? _wx.Rain(rt) : null,
+        };
+    }
+
     // ---- Weather (Tempest) ------------------------------------------------------------
 
     private void StartTempest()
     {
+        // Forecast and station history from the WeatherFlow cloud (only with a token); independent of the local feed.
+        try
+        {
+            _wxCloud = TempestCloud.Create(_settings.Weather, DispatcherQueue);
+            _wxCloud?.Start();
+        }
+        catch (Exception ex)
+        {
+            _wxCloud = null;
+            SystemEvents.Report("Weather forecast unavailable", ex.Message);
+        }
+
         if (!_settings.Weather.TempestEnabled) return;
         try
         {
@@ -1444,6 +1572,7 @@ public sealed partial class MainWindow : Window
         _clock.Stop();
         _monitor?.Dispose();
         _tempest?.Dispose();
+        _wxCloud?.Dispose();
         _taskTools?.Dispose();
         _voice?.Dispose();
         if (_gateway is not null) _ = _gateway.DisposeAsync().AsTask();

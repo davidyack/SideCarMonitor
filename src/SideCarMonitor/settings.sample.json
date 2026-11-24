@@ -23,7 +23,11 @@
   "weather": {
     // WeatherFlow Tempest: read the hub's local UDP broadcasts (port 50222), no token needed.
     "tempestEnabled": true,
-    "units": "imperial"
+    "units": "imperial",
+    // Optional: a WeatherFlow personal access token (tempestwx.com > Settings > Data Authorizations) adds the
+    // hourly and 10-day forecast and the station's history. The station is found from the token.
+    "tempestToken": "",
+    "tempestStationId": null       // only needed if the account has more than one station
   },
   "cameras": [
     {
