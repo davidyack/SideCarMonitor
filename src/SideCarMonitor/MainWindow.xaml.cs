@@ -1583,7 +1583,59 @@ public sealed partial class MainWindow : Window
         SetFullScreen(!IsFullScreen);
     }
 
-    private void QuitButton_Click(object sender, RoutedEventArgs e) => Close();
+    private void QuitButton_Click(object sender, RoutedEventArgs e)
+    {
+        MenuFlyout.Hide();
+        _ = ConfirmQuitAsync();
+    }
+
+    private bool _quitDialogOpen;
+
+    /// <summary>Quit (menu or Ctrl+Q) asks first: closing the kiosk stops cameras, alerts, reminders and the phone gateway.</summary>
+    private async Task ConfirmQuitAsync()
+    {
+        if (_quitDialogOpen) return;
+        _quitDialogOpen = true;
+        try
+        {
+            // The kiosk runs at 100% Windows scaling and sizes everything from UiScale, so the dialog has to as well.
+            var res = Application.Current.Resources;
+            double body = (double)res["FontBody"], title = (double)res["FontTitle"], touch = (double)res["TouchTarget"];
+            Style Sized(Style? basedOn)
+            {
+                var s = new Style(typeof(Button)) { BasedOn = basedOn };
+                s.Setters.Add(new Setter(Control.FontSizeProperty, body));
+                s.Setters.Add(new Setter(FrameworkElement.MinHeightProperty, touch));
+                s.Setters.Add(new Setter(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Stretch));
+                return s;
+            }
+            var button = Sized(null);
+            // Cancel is the safe choice, so it's the highlighted one. (Not via DefaultButton: the dialog then restyles it
+            // as a standard-size accent button and ignores this style.)
+            var accent = Sized(null);
+            accent.Setters.Add(new Setter(Control.BackgroundProperty, res["TileCobalt"]));
+            accent.Setters.Add(new Setter(Control.ForegroundProperty, new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.White)));
+            var dialog = new ContentDialog
+            {
+                Title = new TextBlock { Text = "Quit SideCar?", FontSize = title, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold },
+                Content = new TextBlock
+                {
+                    Text = "Cameras, weather alerts, reminders and the phone connection stop until SideCar is started again.",
+                    FontSize = body, TextWrapping = TextWrapping.Wrap,
+                },
+                PrimaryButtonText = "Quit",
+                CloseButtonText = "Cancel",
+                DefaultButton = ContentDialogButton.None,
+                PrimaryButtonStyle = button,
+                CloseButtonStyle = accent,
+                XamlRoot = Content.XamlRoot,
+            };
+            dialog.Resources["ContentDialogMaxWidth"] = touch * 14;
+            dialog.Resources["ContentDialogMinWidth"] = touch * 10;
+            if (await dialog.ShowAsync() == ContentDialogResult.Primary) Close();
+        }
+        finally { _quitDialogOpen = false; }
+    }
 
     // ---- Phone/watch gateway and pairing ------------------------------------------------------
 
@@ -1684,7 +1736,11 @@ public sealed partial class MainWindow : Window
 
     // ---- Keyboard (convenience only; everything is also reachable by touch) -----
 
-    private void Quit_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args) => Close();
+    private void Quit_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        args.Handled = true;
+        _ = ConfirmQuitAsync();
+    }
 
     private void ToggleFullScreen_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
