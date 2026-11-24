@@ -71,6 +71,7 @@ public sealed partial class XPage : UserControl
         if (_feed is null) { SubtitleText.Text = "X isn't set up."; return; }
         var offset = ListScroll.VerticalOffset;
         UpdateSubtitle();
+        HealthText.Text = _feed.HealthLine();
         Tabs.Children.Clear();
         foreach (var (tag, label, count) in new[] { ("signal", "Signal", _feed.Signal.Count()), ("noise", "Noise", _feed.Noise.Count()), ("saved", "Saved", _feed.SavedPosts.Count()) })
         {

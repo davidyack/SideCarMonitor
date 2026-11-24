@@ -106,6 +106,20 @@ public sealed class XFeed(XClient x, EventJudge? decision, AgentHost? agent)
 
     public IEnumerable<XItem> Signal => State.Posts.Values.Where(p => p.IsSignal && !p.Cleared).OrderByDescending(p => p.Created);
     public IEnumerable<XItem> Noise => State.Posts.Values.Where(p => !p.IsSignal && !p.Cleared).OrderByDescending(p => p.Created);
+    /// <summary>Signal to noise over everything pulled in the last <paramref name="days"/> days (cleared or not).</summary>
+    public string HealthLine(int days = 14)
+    {
+        var posts = State.Posts.Values.Where(p => p.FirstSeen >= DateTime.Now.AddDays(-days)).ToList();
+        if (posts.Count == 0) return "No posts read yet";
+        var signal = posts.Count(p => p.IsSignal);
+        var accounts = posts.GroupBy(p => p.Username).ToList();
+        var deadweight = accounts.Where(g => !g.Any(p => p.IsSignal)).OrderByDescending(g => g.Count()).ToList();
+        var top5 = deadweight.Take(5).Sum(g => g.Count());
+        var noise = posts.Count - signal;
+        return $"Signal to noise: {(int)Math.Round(100.0 * signal / posts.Count)}% signal ({signal} of {posts.Count} posts, last {days} days)" +
+               (noise > 0 && top5 > 0 ? $" \u00B7 {deadweight.Count} of {accounts.Count} accounts never had signal; the top 5 made {(int)Math.Round(100.0 * top5 / noise)}% of the noise" : "");
+    }
+
     public IEnumerable<XItem> SavedPosts => State.Posts.Values.Where(p => p.Saved).OrderByDescending(p => p.Created);
 
     private static string Trim(string s, int max) => s.Length <= max ? s : s[..max] + "…";

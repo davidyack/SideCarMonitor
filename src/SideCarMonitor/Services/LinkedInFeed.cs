@@ -27,7 +27,7 @@ public sealed class LiPost
     /// <summary>You listened to it (podcast "Done"): hidden from Signal/Noise, still on the person's profile.</summary>
     public bool Cleared { get; set; }
 
-    public bool IsSignal => YourLabel is { } l ? l == "signal" : !Promoted && Score >= LinkedInFeed.SignalThreshold;
+    public bool IsSignal => YourLabel is { } l ? l == "signal" : !Promoted && !LinkedInFeed.IsSuppressed(Author) && Score >= LinkedInFeed.SignalThreshold;
 }
 
 /// <summary>Someone whose posts showed up as signal: their posts over time and an AI summary of them.</summary>
@@ -53,6 +53,8 @@ public sealed class LiState
 {
     public Dictionary<string, LiPost> Posts { get; set; } = [];
     public Dictionary<string, LiPerson> People { get; set; } = [];
+    /// <summary>People (by name) you've suppressed: never Signal, never in a briefing, not sent to the decision model.</summary>
+    public List<string> SuppressedAuthors { get; set; } = [];
     public DateTime? LastRun { get; set; }
     public string LastRunResult { get; set; } = "";
     public string Digest { get; set; } = "";
@@ -104,8 +106,11 @@ public sealed class LinkedInFeed
 
     private static LiState Load()
     {
-        try { return File.Exists(StatePath) ? JsonSerializer.Deserialize<LiState>(File.ReadAllText(StatePath)) ?? new() : new(); }
-        catch { return new(); }
+        LiState state;
+        try { state = File.Exists(StatePath) ? JsonSerializer.Deserialize<LiState>(File.ReadAllText(StatePath)) ?? new() : new(); }
+        catch { state = new(); }
+        _suppressed = new(state.SuppressedAuthors, StringComparer.OrdinalIgnoreCase);
+        return state;
     }
 
     private readonly object _saveLock = new();
@@ -119,6 +124,51 @@ public sealed class LinkedInFeed
         }
         Changed?.Invoke();
     }
+
+    // ---- Suppressed people and feed health ----
+    private static HashSet<string> _suppressed = new(StringComparer.OrdinalIgnoreCase);
+    public static bool IsSuppressed(string author) => _suppressed.Contains(author);
+
+    public void SetSuppressed(string author, bool suppressed)
+    {
+        State.SuppressedAuthors.RemoveAll(a => a.Equals(author, StringComparison.OrdinalIgnoreCase));
+        if (suppressed) State.SuppressedAuthors.Add(author);
+        _suppressed = new(State.SuppressedAuthors, StringComparer.OrdinalIgnoreCase);
+        SystemEvents.Report(suppressed ? "LinkedIn: suppressed a person" : "LinkedIn: un-suppressed a person", author);
+        Save();
+    }
+
+    public sealed record FeedHealth(int Seen, int Signal, int Ads, int Suppressed, int Days)
+    {
+        public int SignalPercent => Seen == 0 ? 0 : (int)Math.Round(100.0 * Signal / Seen);
+        public override string ToString() => Seen == 0 ? "No posts read yet"
+            : $"Signal to noise: {SignalPercent}% signal ({Signal} of {Seen} posts, last {Days} days) \u00B7 {(int)Math.Round(100.0 * Ads / Seen)}% ads" +
+              (Suppressed > 0 ? $" \u00B7 {Suppressed} from suppressed people" : "");
+    }
+
+    /// <summary>Everything read from your feed in the last <paramref name="days"/> days, cleared or not.</summary>
+    public FeedHealth Health(int days = 14)
+    {
+        var posts = State.Posts.Values.Where(p => !p.FromProfile && p.FirstSeen >= DateTime.Now.AddDays(-days)).ToList();
+        return new FeedHealth(posts.Count, posts.Count(p => p.IsSignal), posts.Count(p => p.Promoted), posts.Count(p => IsSuppressed(p.Author)), days);
+    }
+
+    public sealed record Source(string Author, string Headline, string AuthorUrl, int Posts, int Signal, int Ads, bool Suppressed)
+    {
+        public int Noise => Posts - Signal;
+    }
+
+    /// <summary>Who fills your feed with noise (last 30 days): mostly-noise people first; suppressed people always listed.</summary>
+    public List<Source> NoisySources(int days = 30) =>
+        State.Posts.Values.Where(p => !p.FromProfile && p.FirstSeen >= DateTime.Now.AddDays(-days))
+            .GroupBy(p => p.Author, StringComparer.OrdinalIgnoreCase)
+            .Select(g => new Source(g.Key, g.Select(p => p.Headline).FirstOrDefault(h => h.Length > 0) ?? "", g.Select(p => p.AuthorUrl).FirstOrDefault(u => u.Length > 0) ?? "",
+                g.Count(), g.Count(p => p.IsSignal), g.Count(p => p.Promoted), IsSuppressed(g.Key)))
+            .Where(s => s.Suppressed || (s.Noise >= 2 && s.Signal * 4 <= s.Posts && s.Ads < s.Posts))
+            .Concat(State.SuppressedAuthors.Where(a => !State.Posts.Values.Any(p => p.Author.Equals(a, StringComparison.OrdinalIgnoreCase) && p.FirstSeen >= DateTime.Now.AddDays(-days)))
+                .Select(a => new Source(a, "", "", 0, 0, 0, true)))
+            .OrderByDescending(s => s.Suppressed).ThenByDescending(s => s.Noise).ThenBy(s => s.Author)
+            .ToList();
 
     public IEnumerable<LiPost> Signal => State.Posts.Values.Where(p => p.IsSignal && !p.FromProfile && !p.Cleared).OrderByDescending(p => p.FirstSeen).ThenByDescending(p => p.Score);
     public IEnumerable<LiPost> Noise => State.Posts.Values.Where(p => !p.IsSignal && !p.FromProfile && !p.Cleared).OrderByDescending(p => p.FirstSeen);
@@ -160,7 +210,7 @@ public sealed class LinkedInFeed
                     Id = p.Urn, Author = p.Author, AuthorUrl = p.AuthorUrl, Headline = p.Headline, Age = p.Age, Context = p.Context,
                     Text = p.Text.Length > 0 ? p.Text : p.Raw, Link = p.OpenUrl(), Promoted = p.Promoted, FirstSeen = DateTime.Now,
                 };
-                post.Score = post.Promoted ? 0 : await ScoreAsync(post);
+                post.Score = post.Promoted || IsSuppressed(post.Author) ? 0 : await ScoreAsync(post);
                 State.Posts[post.Id] = post;
                 if (post.IsSignal) AddToProfile(post);
             }

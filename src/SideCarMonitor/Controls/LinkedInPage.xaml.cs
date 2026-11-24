@@ -62,12 +62,25 @@ public sealed partial class LinkedInPage : UserControl
         UpdateSubtitle();
         var signal = _feed.Signal.ToList();
         var noise = _feed.Noise.ToList();
+        var sources = _feed.NoisySources();
         SignalTab.Content = $"Signal {signal.Count}";
         NoiseTab.Content = $"Noise {noise.Count}";
+        SourcesTab.Content = $"Sources {sources.Count(s => !s.Suppressed)}";
         SignalTab.Background = Res<Brush>(_tab == "signal" ? "TileCobalt" : "PanelBackground");
         NoiseTab.Background = Res<Brush>(_tab == "noise" ? "TileCobalt" : "PanelBackground");
+        SourcesTab.Background = Res<Brush>(_tab == "sources" ? "TileCobalt" : "PanelBackground");
+        HealthText.Text = _feed.Health().ToString();
 
         PostsPanel.Children.Clear();
+        if (_tab == "sources")
+        {
+            RenderSources(sources);
+            if (keepScroll) ListScroll.ChangeView(null, offset, null, disableAnimation: true);
+            if (_profileUrl is not null) RenderProfile(_profileUrl); else RenderDigest();
+            RenderBriefingBar();
+            UpdateSubtitleNote();
+            return;
+        }
         var list = _tab == "signal" ? signal : noise;
         foreach (var p in list.Take(60)) PostsPanel.Children.Add(PostCard(p));
         if (list.Count == 0)
@@ -99,6 +112,8 @@ public sealed partial class LinkedInPage : UserControl
             var toNoise = p.IsSignal;
             buttons.Children.Add(Action(toNoise ? "Noise" : "Not noise", toNoise ? "AlertBrush" : "TileEmerald", () => { _feed!.Label(p.Id, signal: !toNoise); }));
         }
+        if (!compact && !p.FromProfile && !p.Promoted && !p.IsSignal && p.Author.Length > 0 && !LinkedInFeed.IsSuppressed(p.Author))
+            buttons.Children.Add(Action("Suppress", "PanelBorder", () => _feed!.SetSuppressed(p.Author, true)));
         if (!compact && p.AuthorUrl.Length > 0)
             buttons.Children.Add(Action("Profile", "TileMauve", () => { _profileUrl = p.AuthorUrl; RenderProfile(p.AuthorUrl); }));
         if (p.Link.Length > 0)
@@ -110,6 +125,47 @@ public sealed partial class LinkedInPage : UserControl
             Child = body, Padding = Res<Thickness>("PanelPadding"), CornerRadius = Res<CornerRadius>("SmallCorner"),
             Background = Res<Brush>("PanelBackground"),
         };
+    }
+
+    /// <summary>Sources tab: who's mostly noise (last 30 days), with Suppress / Unsuppress.</summary>
+    private void RenderSources(List<LinkedInFeed.Source> sources)
+    {
+        PostsPanel.Children.Add(new TextBlock
+        {
+            Text = "People whose posts are mostly noise (last 30 days). Suppressing someone keeps them out of Signal and out of every briefing, " +
+                   "and stops spending model time on them. Their posts still show under Noise; Unsuppress any time.",
+            FontSize = Font("FontCaption"), Foreground = Res<Brush>("MutedText"), TextWrapping = TextWrapping.Wrap,
+        });
+        if (sources.Count == 0)
+            PostsPanel.Children.Add(new TextBlock { Text = "No noisy sources yet. Nice.", FontSize = Font("FontBody"), Foreground = Res<Brush>("MutedText") });
+        foreach (var s in sources)
+        {
+            var info = new StackPanel { Spacing = 2 };
+            info.Children.Add(new TextBlock { Text = s.Author + (s.Suppressed ? "  \u00B7  suppressed" : ""), FontSize = Font("FontBody"), FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis });
+            if (s.Headline.Length > 0)
+                info.Children.Add(new TextBlock { Text = s.Headline, FontSize = Font("FontCaption"), Foreground = Res<Brush>("MutedText"), TextTrimming = TextTrimming.CharacterEllipsis });
+            info.Children.Add(new TextBlock
+            {
+                Text = s.Posts == 0 ? "No posts in the last 30 days" : $"{s.Signal} of {s.Posts} posts were signal" + (s.Ads > 0 ? $" \u00B7 {s.Ads} ads" : ""),
+                FontSize = Font("FontCaption"), Foreground = Res<Brush>(s.Signal == 0 ? "AlertBrush" : "AccentText"),
+            });
+            var row = new Grid { ColumnSpacing = 12 };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.Children.Add(info);
+            var button = s.Suppressed
+                ? Action("Unsuppress", "TileEmerald", () => _feed!.SetSuppressed(s.Author, false))
+                : Action("Suppress", "AlertBrush", () => _feed!.SetSuppressed(s.Author, true));
+            button.MinHeight = Res<double>("TouchTarget");
+            button.VerticalAlignment = VerticalAlignment.Center;
+            Grid.SetColumn(button, 1);
+            row.Children.Add(button);
+            PostsPanel.Children.Add(new Border
+            {
+                Child = row, Padding = Res<Thickness>("PanelPadding"), CornerRadius = Res<CornerRadius>("SmallCorner"),
+                Background = Res<Brush>("PanelBackground"),
+            });
+        }
     }
 
     private static Button Action(string text, string brush, Action onClick)
