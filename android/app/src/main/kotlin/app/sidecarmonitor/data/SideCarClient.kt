@@ -96,7 +96,7 @@ data class LinkedInInfo(
 @Serializable
 data class LiPodcast(
     val status: String = "", val at: String? = null, val seconds: Double = 0.0, val posts: Int = 0,
-    val cleared: Boolean = false, val candidates: Int = 0,
+    val cleared: Boolean = false, val candidates: Int = 0, val hasNews: Boolean = false,
 )
 
 @Serializable
@@ -107,6 +107,36 @@ data class ReminderItem(val id: String, val text: String, val dueText: String = 
 
 @Serializable
 data class RemindersInfo(val available: Boolean = false, val due: List<ReminderItem> = emptyList())
+
+@Serializable
+data class XPost(
+    val id: String, val author: String = "", val username: String = "", val authorId: String = "", val text: String = "",
+    val created: String = "", val likes: Int = 0, val reposts: Int = 0, val replies: Int = 0, val repost: Boolean = false,
+    val link: String = "", val signal: Boolean = false, val yours: String? = null, val saved: Boolean = false, val analysis: String = "",
+)
+
+@Serializable
+data class XAccountInfo(val id: String = "", val name: String = "", val username: String = "", val seen: Int = 0, val signal: Int = 0, val noise: Int = 0)
+
+@Serializable
+data class XInfo(
+    val available: Boolean = false, val busy: Boolean = false, val lastUpdate: String? = null, val lastResult: String = "", val postsRead: Int = 0,
+    val signal: List<XPost> = emptyList(), val noise: List<XPost> = emptyList(), val saved: List<XPost> = emptyList(),
+    val listCandidates: List<XAccountInfo> = emptyList(), val noisy: List<XAccountInfo> = emptyList(),
+    val podcast: LiPodcast = LiPodcast(),
+)
+
+@Serializable
+data class CalEventInfo(
+    val calendar: String = "", val subject: String = "", val start: String = "", val end: String = "", val allDay: Boolean = false,
+    val showAs: String = "", val location: String = "", val joinUrl: String = "", val organizer: String = "", val webLink: String = "",
+)
+
+@Serializable
+data class CalDay(val available: Boolean = false, val date: String = "", val calendars: List<String> = emptyList(), val events: List<CalEventInfo> = emptyList())
+
+@Serializable
+data class BriefInfo(val available: Boolean = false, val kind: String = "", val title: String = "", val at: String = "", val text: String = "", val dismissed: Boolean = false)
 
 /** One message from the agent over the chat WebSocket. */
 data class ChatEvent(val type: String, val id: String?, val text: String?, val name: String?, val message: String?)
@@ -206,6 +236,41 @@ class SideCarClient(private val pairing: Pairing) {
 
     /** Reminders that are due now (they nag until handled). */
     suspend fun clearActivity() = postJson("/api/activity/clear", buildJsonObject { })
+
+    // ---- X ----
+    suspend fun x(): XInfo = withContext(Dispatchers.IO) { call(Request.Builder().url("$base/api/x").build()).use { json.decodeFromString(it.body.string()) } }
+    suspend fun xUpdate() = postJson("/api/x/update", buildJsonObject { })
+    suspend fun xLabel(id: String, signal: Boolean) = postJson("/api/x/label", buildJsonObject { put("id", id); put("signal", signal) })
+    suspend fun xSave(id: String) = postJson("/api/x/save", buildJsonObject { put("id", id) })
+    suspend fun xUnfollow(authorId: String) = postJson("/api/x/unfollow", buildJsonObject { put("authorId", authorId) })
+    suspend fun xAnalyze(id: String): String = withContext(Dispatchers.IO) {
+        val body = buildJsonObject { put("id", id) }.toString().toRequestBody("application/json".toMediaType())
+        call(Request.Builder().url("$base/api/x/analyze").post(body).build()).use {
+            json.parseToJsonElement(it.body.string()).jsonObject["analysis"]?.jsonPrimitive?.content ?: ""
+        }
+    }
+    suspend fun xPodcastPrepare() = postJson("/api/x/podcast", buildJsonObject { })
+    suspend fun xPodcastClear() = postJson("/api/x/podcast/clear", buildJsonObject { })
+    suspend fun xPodcastAudio(): ByteArray = withContext(Dispatchers.IO) { call(Request.Builder().url("$base/api/x/podcast/audio").build()).use { it.body.bytes() } }
+    suspend fun xPodcastInterrupt(text: String, positionSeconds: Double): String = withContext(Dispatchers.IO) {
+        val body = buildJsonObject { put("text", text); put("position", positionSeconds) }.toString().toRequestBody("application/json".toMediaType())
+        call(Request.Builder().url("$base/api/x/podcast/interrupt").post(body).build()).use {
+            json.parseToJsonElement(it.body.string()).jsonObject["reply"]?.jsonPrimitive?.content ?: "Saved"
+        }
+    }
+
+    // ---- Calendar ----
+    suspend fun calendarDay(date: String): CalDay = withContext(Dispatchers.IO) {
+        call(Request.Builder().url("$base/api/calendar/day?date=$date").build()).use { json.decodeFromString(it.body.string()) }
+    }
+    suspend fun calendarAdd(calendar: String, subject: String, start: String, minutes: Int) =
+        postJson("/api/calendar/add", buildJsonObject { put("calendar", calendar); put("subject", subject); put("start", start); put("minutes", minutes) })
+
+    // ---- Briefs ----
+    suspend fun brief(): BriefInfo = withContext(Dispatchers.IO) { call(Request.Builder().url("$base/api/brief").build()).use { json.decodeFromString(it.body.string()) } }
+    suspend fun briefDismiss() = postJson("/api/brief/dismiss", buildJsonObject { })
+    suspend fun briefMake() = postJson("/api/brief/make", buildJsonObject { })
+    suspend fun briefAudio(): ByteArray = withContext(Dispatchers.IO) { call(Request.Builder().url("$base/api/brief/audio").build()).use { it.body.bytes() } }
 
     suspend fun dueReminders(): List<ReminderItem> = withContext(Dispatchers.IO) {
         call(Request.Builder().url("$base/api/reminders").build()).use {

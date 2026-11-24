@@ -97,7 +97,7 @@ class MainActivity : ComponentActivity() {
                     }
                     Box(Modifier.fillMaxSize().safeDrawingPadding()) {
                         when (screen) {
-                            Screen.Home -> HomeScreen(state, onOpen = { screen = it }, onTalk = ::talk)
+                            Screen.Home -> HomeScreen(state, vm, onOpen = { screen = it }, onTalk = ::talk)
                             Screen.Cameras -> CamerasScreen(state, vm::snapshot) { screen = Screen.Home }
                             Screen.Weather -> WeatherScreen(state) { screen = Screen.Home }
                             Screen.Activity -> ActivityScreen(state, vm::snapshot, vm::eventSnapshot, vm::clearActivity) { screen = Screen.Home }
@@ -110,6 +110,8 @@ class MainActivity : ComponentActivity() {
                                 else WeekScreen(state.week, state.taskMessage, onMove = vm::moveTaskToDay, onToggleDone = vm::toggleDone,
                                     onOpen = vm::openTask, onWeek = vm::shiftWeek) { screen = Screen.Tasks }
                             Screen.House -> HouseScreen(vm) { screen = Screen.Home }
+                    Screen.X -> app.sidecarmonitor.ui.XScreen(vm) { screen = Screen.Home }
+                    Screen.Day -> app.sidecarmonitor.ui.DayScreen(vm) { screen = Screen.Home }
                     Screen.LinkedIn -> LinkedInScreen(vm) { screen = Screen.Home }
                     Screen.Settings -> SettingsScreen(state, onScan = ::scan, onUnpair = vm::unpair) { screen = Screen.Home }
                         }

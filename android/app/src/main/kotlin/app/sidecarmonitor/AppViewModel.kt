@@ -147,6 +147,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** Clears the Activity feed on the kiosk (History keeps everything), then refreshes. */
     fun clearActivity() { viewModelScope.launch { client?.clearActivity(); refreshOnce() } }
 
+    /** The paired kiosk connection, for screens that call it directly (X, calendar, briefs). */
+    val kiosk: app.sidecarmonitor.data.SideCarClient? get() = client
+
+    /** Podcast Interrupt for X: record, transcribe on the kiosk, save "X Follow up - ...". */
+    suspend fun xInterrupt(positionSeconds: Double, onHeard: (String) -> Unit): String {
+        val c = client ?: return "Not connected"
+        val wav = app.sidecarmonitor.data.VoiceRecorder().record()
+        val said = runCatching { c.listen(wav) }.getOrElse { return "Couldn't hear that: ${it.message}" }
+        if (said.isBlank()) return "Didn't catch that"
+        onHeard(said)
+        return runCatching { c.xPodcastInterrupt(said, positionSeconds) }.getOrElse { "Couldn't save that: ${it.message}" }
+    }
+
     // ---- LinkedIn (read and sorted by the kiosk) ----
     suspend fun linkedIn(): app.sidecarmonitor.data.LinkedInInfo? = runCatching { client?.linkedIn() }.getOrNull()
     suspend fun linkedInLabel(id: String, signal: Boolean): String? = client?.linkedInLabel(id, signal) ?: "Not connected"

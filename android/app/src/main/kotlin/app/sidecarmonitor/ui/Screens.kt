@@ -1,5 +1,6 @@
 package app.sidecarmonitor.ui
 
+import androidx.compose.foundation.verticalScroll
 import android.graphics.BitmapFactory
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
@@ -72,7 +73,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
-enum class Screen { Home, Cameras, Weather, Activity, Tasks, Week, House, LinkedIn, Settings }
+enum class Screen { Home, Cameras, Weather, Activity, Tasks, Week, House, LinkedIn, X, Day, Settings }
 
 private fun JsonObject?.str(key: String): String? =
     this?.get(key)?.let { runCatching { it.jsonPrimitive.content }.getOrNull() }?.takeIf { it != "null" }
@@ -80,16 +81,17 @@ private fun JsonObject?.str(key: String): String? =
 // ---- Home: Windows Phone style tiles --------------------------------------------------------
 
 @Composable
-fun HomeScreen(state: UiState, onOpen: (Screen) -> Unit, onTalk: () -> Unit) {
+fun HomeScreen(state: UiState, vm: app.sidecarmonitor.AppViewModel, onOpen: (Screen) -> Unit, onTalk: () -> Unit) {
     val now by produceState(LocalTime.now()) { while (true) { value = LocalTime.now(); delay(1000) } }
     val weather = state.status?.weather
     val cams = state.status?.cameras.orEmpty()
     val activity = state.status?.activity.orEmpty()
     val activeNow = activity.firstOrNull { it.active }
 
-    Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.fillMaxSize().verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        BriefCard(vm)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Tile(SideCarColors.Panel, Modifier.weight(1f).aspectRatio(1f), onClick = null) {
+            Tile(SideCarColors.Panel, Modifier.weight(1f).aspectRatio(1f), onClick = { onOpen(Screen.Day) }) {
                 Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
                     Text(now.format(DateTimeFormatter.ofPattern("h:mm")), fontSize = 44.sp, fontWeight = FontWeight.Light)
                     Text(
@@ -117,6 +119,8 @@ fun HomeScreen(state: UiState, onOpen: (Screen) -> Unit, onTalk: () -> Unit) {
                 value = activity.size.toString(),
                 detail = activeNow?.let { "${it.kind} at ${it.camera}" } ?: activity.firstOrNull()?.let { "Last: ${it.kind}" } ?: "Nothing yet",
                 label = "Activity")
+            Tile(Color(0xFF2F3640), Modifier.weight(1f).aspectRatio(1f), onClick = { onOpen(Screen.X) },
+                icon = null, value = "\uD835\uDD4F", detail = "Signal", label = "X")
             Tile(SideCarColors.Mauve, Modifier.weight(1f).aspectRatio(1f), onClick = onTalk,
                 icon = Icons.Filled.Mic, value = "", detail = "Ask anything", label = "SideCar")
         }
@@ -238,6 +242,7 @@ private fun WeatherRow(title: String, value: String?, detail: String?) {
 fun ActivityScreen(state: UiState, snapshot: suspend (Int) -> ByteArray?, eventSnapshot: suspend (String, Int) -> ByteArray?,
                    onClear: () -> Unit, onBack: () -> Unit) {
     var history by remember { mutableStateOf(false) }
+    var filter by remember { mutableStateOf("all") }
     // Tapping an event opens its details; Back returns to the list.
     var selected by remember { mutableStateOf<app.sidecarmonitor.data.ActivityItem?>(null) }
     selected?.let { a ->
@@ -248,7 +253,15 @@ fun ActivityScreen(state: UiState, snapshot: suspend (Int) -> ByteArray?, eventS
     Column(Modifier.fillMaxSize()) {
         PageHeader("Activity", onBack)
         val all = state.status?.activity.orEmpty()
-        val items = if (history) all else all.filter { !it.cleared }
+        val items = (if (history) all else all.filter { !it.cleared }).filter {
+            when (filter) { "camera" -> it.source == "camera"; "door" -> it.source == "door"; "house" -> it.source in listOf("house", "sidecar"); "system" -> it.source in listOf("system", "sidecar"); else -> true }
+        }
+        Row(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("all" to "All", "camera" to "Cameras", "door" to "Doors", "house" to "House", "system" to "System").forEach { (k, label) ->
+                Text(label, Modifier.background(if (filter == k) SideCarColors.Cobalt else SideCarColors.Panel).clickable { filter = k }
+                    .padding(horizontal = 10.dp, vertical = 8.dp), fontSize = 13.sp)
+            }
+        }
         Row(Modifier.padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Clear", Modifier.background(SideCarColors.Crimson).clickable { history = false; onClear() }
                 .padding(horizontal = 16.dp, vertical = 10.dp), fontSize = 15.sp)

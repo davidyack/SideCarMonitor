@@ -1340,6 +1340,11 @@ public sealed partial class MainWindow : Window
             _gateway.Home = _home;
             _gateway.LinkedIn = _linkedIn;
             _gateway.Reminders = _reminders;
+            _gateway.X = _x;
+            _gateway.Calendar = _calendar;
+            _gateway.CalendarTools = _calendarTools;
+            _gateway.Briefs = _briefs;
+            if (_voice is { } voice) _gateway.Synthesize = text => voice.SynthesizeWavAsync(text, CancellationToken.None);
             _gateway.ClearActivity = () => DispatcherQueue.TryEnqueue(() =>
             {
                 foreach (var ev in _events) ev.Cleared = true;

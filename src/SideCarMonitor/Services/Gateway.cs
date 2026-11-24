@@ -93,6 +93,94 @@ public sealed class Gateway : IAsyncDisposable
         Key = LoadOrCreateKey();
     }
 
+    // ---- X, calendar and briefs for the phone ----
+    public XFeed? X { get; set; }
+    public CalendarService? Calendar { get; set; }
+    public CalendarTools? CalendarTools { get; set; }
+    public BriefService? Briefs { get; set; }
+    /// <summary>Speaks text to WAV in the assistant's voice (for brief playback on the phone).</summary>
+    public Func<string, Task<byte[]>>? Synthesize { get; set; }
+
+    private static object XPostJson(XItem p) => new
+    {
+        id = p.Id, author = p.Author, username = p.Username, authorId = p.AuthorId, text = p.Text, created = p.Created,
+        likes = p.Likes, reposts = p.Reposts, replies = p.Replies, repost = p.IsRepost, link = p.Link, signal = p.IsSignal,
+        yours = p.YourLabel, saved = p.Saved, analysis = p.RepliesInsight,
+    };
+
+    private void MapX(WebApplication app)
+    {
+        app.MapGet("/api/x", () =>
+        {
+            if (X is not { } x) return Results.Json(new { available = false });
+            var s = x.State;
+            return Results.Json(new
+            {
+                available = true, busy = x.Busy, lastUpdate = s.LastUpdate, lastResult = s.LastResult, postsRead = s.PostsRead,
+                signal = x.Signal.Take(60).Select(XPostJson), noise = x.Noise.Take(60).Select(XPostJson), saved = x.SavedPosts.Take(60).Select(XPostJson),
+                listCandidates = x.ListCandidates.Take(25).Select(a => new { a.Name, a.Username, a.Seen, signal = a.Signal + a.YourSignal }),
+                noisy = x.NoisyAccounts.Take(15).Select(a => new { a.Id, a.Name, a.Username, a.Seen, noise = a.Seen - a.Signal }),
+                podcast = new { status = s.PodcastStatus, at = s.PodcastAt, seconds = Math.Round(s.PodcastSeconds), posts = s.PodcastPostIds.Count, cleared = s.PodcastCleared, candidates = x.PodcastCandidates, hasNews = x.PodcastHasNews },
+            });
+        });
+        app.MapPost("/api/x/update", () => { if (X is { } x && !x.Busy) _ = Task.Run(x.UpdateAsync); return Results.Ok(new { ok = true }); });
+        app.MapPost("/api/x/label", (JsonObject b) => { X?.Label(b["id"]?.GetValue<string>() ?? "", b["signal"]?.GetValue<bool>() == true); return Results.Ok(new { ok = true }); });
+        app.MapPost("/api/x/save", async (JsonObject b) => X is { } x ? Results.Json(new { error = await x.SaveAsync(b["id"]?.GetValue<string>() ?? "") }) : Results.NotFound());
+        app.MapPost("/api/x/unfollow", async (JsonObject b) => X is { } x ? Results.Json(new { error = await x.UnfollowAsync(b["authorId"]?.GetValue<string>() ?? "") }) : Results.NotFound());
+        app.MapPost("/api/x/analyze", async (JsonObject b) => X is { } x ? Results.Json(new { analysis = await x.AnalyzeRepliesAsync(b["id"]?.GetValue<string>() ?? "") }) : Results.NotFound());
+        app.MapPost("/api/x/podcast", () => { if (X is { } x) _ = Task.Run(x.PreparePodcastAsync); return Results.Ok(new { ok = true }); });
+        app.MapGet("/api/x/podcast/audio", () => X is { } x && File.Exists(x.PodcastPath)
+            ? Results.File(File.ReadAllBytes(x.PodcastPath), "audio/wav", enableRangeProcessing: true) : Results.NotFound());
+        app.MapPost("/api/x/podcast/clear", () => X is { } x ? Results.Ok(new { cleared = x.ClearPodcastPosts() }) : Results.NotFound());
+        app.MapPost("/api/x/podcast/interrupt", async (JsonObject b) => X is { } x
+            ? Results.Ok(new { reply = await x.InterruptAsync(b["text"]?.GetValue<string>() ?? "", b["position"]?.GetValue<double>() ?? 0) }) : Results.NotFound());
+    }
+
+    private void MapCalendar(WebApplication app)
+    {
+        // One day from both calendars (any date).
+        app.MapGet("/api/calendar/day", async (string? date) =>
+        {
+            if (Calendar is not { } cal) return Results.Json(new { available = false });
+            var day = DateOnly.TryParse(date, out var d) ? d.ToDateTime(TimeOnly.MinValue) : DateTime.Today;
+            var events = await cal.DayAsync(day);
+            return Results.Json(new
+            {
+                available = true, date = day.ToString("yyyy-MM-dd"), calendars = cal.Calendars, problems = cal.Problems,
+                events = events.Select(e => new { e.Calendar, e.Subject, start = e.Start, end = e.End, e.AllDay, e.ShowAs, e.Location, e.JoinUrl, e.Organizer, e.WebLink }),
+            });
+        });
+        // Your own add / block time from the phone (not limited; logged).
+        app.MapPost("/api/calendar/add", async (JsonObject b) =>
+        {
+            if (CalendarTools is not { } tools) return Results.NotFound();
+            if (!DateTime.TryParse(b["start"]?.GetValue<string>(), out var start)) return Results.BadRequest(new { error = "start" });
+            var minutes = b["minutes"]?.GetValue<int>() ?? 30;
+            var error = await tools.UserAddAsync(b["calendar"]?.GetValue<string>() ?? "", b["subject"]?.GetValue<string>() ?? "Busy", start, start.AddMinutes(minutes));
+            return error is null ? Results.Ok(new { ok = true }) : Results.Json(new { error }, statusCode: 400);
+        });
+    }
+
+    private void MapBriefs(WebApplication app)
+    {
+        app.MapGet("/api/brief", () => Briefs?.Latest is { } b
+            ? Results.Json(new { available = true, b.Kind, title = b.Title, at = b.At, text = b.Text, dismissed = b.Dismissed })
+            : Results.Json(new { available = false }));
+        app.MapPost("/api/brief/dismiss", () => { if (Briefs?.Latest is { } b) Briefs.Dismiss(b); return Results.Ok(new { ok = true }); });
+        app.MapPost("/api/brief/make", () =>
+        {
+            if (Briefs is { } br) _ = Task.Run(() => br.MakeAsync(DateTime.Now.Hour is >= 4 and < 15 ? "morning" : "evening"));
+            return Results.Ok(new { ok = true });
+        });
+        // The brief read aloud (WAV) in the assistant's voice.
+        app.MapGet("/api/brief/audio", async () =>
+        {
+            if (Briefs?.Latest is not { } b || Synthesize is null) return Results.NotFound();
+            var spoken = $"{b.Title.Replace(" \u00B7 ", ", ")}. " + string.Join(" ", b.Text.Split('\n').Select(l => l.Trim().TrimStart('-', ' ').Trim()).Where(l => l.Length > 0).Select(l => l.EndsWith('.') ? l : l + "."));
+            return Results.File(await Synthesize(spoken), "audio/wav");
+        });
+    }
+
     /// <summary>Clears the Activity feed (History keeps everything); set by the window.</summary>
     public Action? ClearActivity { get; set; }
 
@@ -283,6 +371,9 @@ public sealed class Gateway : IAsyncDisposable
         MapHome(app);
         MapLinkedIn(app);
         MapReminders(app);
+        MapX(app);
+        MapCalendar(app);
+        MapBriefs(app);
         app.MapPost("/api/activity/clear", () => { ClearActivity?.Invoke(); return Results.Ok(new { ok = true }); });
 
         // Speech-to-text: body is 16 kHz, 16-bit, mono PCM WAV recorded on the phone or watch.
