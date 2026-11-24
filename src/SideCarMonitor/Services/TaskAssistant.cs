@@ -100,13 +100,18 @@ public sealed class TaskAssistant : IDisposable
             await ReviewAsync(t.Id, explicitRequest: false);
     }
 
+    private static bool JustNoted(TaskItem t) =>
+        t.History.LastOrDefault() is { Author: Actor.User, Kind: EntryKind.Note } e
+        && DateTimeOffset.Now - e.At < TimeSpan.FromMinutes(10)
+        && (t.LastReviewedAt is null || e.At > t.LastReviewedAt);
+
     private async Task ReviewUnblockedAsync()
     {
         // Only tasks you just changed after an earlier review (or answered), with help on: your edit unblocked them.
+        // ...or you just added a note: a note from you is guidance, so SideCar takes a look even if it never worked on the task.
         var recent = _tasks.All().Where(t =>
-            t.LastReviewedAt is not null
-            && t.Updated > t.LastReviewedAt
-            && DateTimeOffset.Now - t.Updated < TimeSpan.FromMinutes(10)
+            DateTimeOffset.Now - t.Updated < TimeSpan.FromMinutes(10)
+            && ((t.LastReviewedAt is not null && t.Updated > t.LastReviewedAt) || JustNoted(t))
             && _tasks.EligibleForReview(t, explicitRequest: false)).Take(2).ToList();
         foreach (var t in recent) await ReviewAsync(t.Id, explicitRequest: false);
     }

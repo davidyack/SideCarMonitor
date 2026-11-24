@@ -39,6 +39,8 @@ public sealed partial class TasksPage : UserControl
     // ---- Voice note: Add note / Answer open a big panel that listens right away ----
     /// <summary>Set by the window: used to listen for notes.</summary>
     public VoiceService? Voice { get; set; }
+    /// <summary>Shows a short confirmation (set by the page, e.g. in the subtitle).</summary>
+    private Action<string>? NoteSavedHint => msg => { SubtitleText.Text = msg; };
     private Func<string, TaskItem>? _voiceSave;
     private CancellationTokenSource? _voiceListen;
 
@@ -90,6 +92,8 @@ public sealed partial class TasksPage : UserControl
         _voiceListen?.Cancel();
         VoiceNote.Visibility = Visibility.Collapsed;
         if (_voiceSave is { } save) Do(() => save(text));
+        if (SelectedTask is { AssistantHelp: true, Status: TodoStatus.Open })
+            NoteSavedHint?.Invoke("Note saved. SideCar will look at this task in about a minute.");
     }
 
     public void Initialize(TaskService tasks, TaskAssistant? assistant)
@@ -378,14 +382,14 @@ public sealed partial class TasksPage : UserControl
 
         // Fields
         _titleBox = new TextBox { Text = t.Title, FontSize = Num("FontTitle"), MinHeight = Num("TouchTarget"), TextWrapping = TextWrapping.Wrap };
-        _titleBox.TextChanged += (_, _) => _dirty = true;
+        _titleBox.TextChanged += (_, _) => MarkDirty();
         Detail.Children.Add(_titleBox);
         _detailsBox = new TextBox
         {
             Text = t.Details ?? "", PlaceholderText = "Details", FontSize = Num("FontBody"), AcceptsReturn = true,
             TextWrapping = TextWrapping.Wrap, MinHeight = Num("TouchTarget") * 1.6,
         };
-        _detailsBox.TextChanged += (_, _) => _dirty = true;
+        _detailsBox.TextChanged += (_, _) => MarkDirty();
         Detail.Children.Add(_detailsBox);
 
         // Priority
@@ -396,7 +400,7 @@ public sealed partial class TasksPage : UserControl
             var b = BigButton(p.ToString(), p == t.Priority ? PriorityBrush(p) : Res("PanelBorder"));
             b.Click += (_, _) =>
             {
-                _editPriority = p; _dirty = true;
+                _editPriority = p; MarkDirty();
                 foreach (var c in prio.Children.OfType<Button>()) c.Background = Res("PanelBorder");
                 b.Background = PriorityBrush(p);
             };
@@ -416,10 +420,10 @@ public sealed partial class TasksPage : UserControl
             Date = t.Date?.ToDateTime(TimeOnly.MinValue), PlaceholderText = "No date", FontSize = Num("FontBody"),
             MinHeight = Num("TouchTarget"), HorizontalAlignment = HorizontalAlignment.Stretch,
         };
-        _datePicker.DateChanged += (_, _) => _dirty = true;
+        _datePicker.DateChanged += (_, _) => MarkDirty();
         dateRow.Children.Add(_datePicker);
         var clear = BigButton("No date", Res("PanelBorder"));
-        clear.Click += (_, _) => { _datePicker.Date = null; _dirty = true; };
+        clear.Click += (_, _) => { _datePicker.Date = null; MarkDirty(); };
         Grid.SetColumn(clear, 1);
         dateRow.Children.Add(clear);
         Detail.Children.Add(dateRow);
@@ -431,8 +435,10 @@ public sealed partial class TasksPage : UserControl
         Detail.Children.Add(Toggle("Let assistant help", t.AssistantHelp, on => Do(() => _tasks.SetAssistantHelp(Actor.User, t.Id, on))));
 
         // Actions
+        _saveRow = ButtonRow(("Save changes", "TileAmber", SaveFields));
+        _saveRow.Visibility = Visibility.Collapsed;
+        Detail.Children.Add(_saveRow);
         Detail.Children.Add(ButtonRow(
-            ("Save changes", "TileCobalt", SaveFields),
             ("Take a pass", "TileMauve", () => { if (_assistant is not null) _ = _assistant.ReviewAsync(t.Id, explicitRequest: true); }),
             t.Status == TodoStatus.Open
                 ? ("Mark done", "TileEmerald", () => Do(() => _tasks.MarkDone(Actor.User, t.Id)))
@@ -447,10 +453,9 @@ public sealed partial class TasksPage : UserControl
             Text = cur?.Content ?? "", PlaceholderText = "The assistant's draft, plan or comparison shows up here. You can edit it.",
             AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, FontSize = Num("FontCaption"), MinHeight = Num("TouchTarget") * 2.5,
         };
-        _deliverableBox.TextChanged += (_, _) => _dirty = true;
+        _deliverableOriginal = _deliverableBox.Text;
+        _deliverableBox.TextChanged += (_, _) => MarkDirty();
         Detail.Children.Add(_deliverableBox);
-        Detail.Children.Add(ButtonRow(("Save my edit", "TileCobalt", () =>
-            Do(() => _tasks.SaveDeliverable(Actor.User, t.Id, _deliverableBox.Text)))));
         if (t.Deliverable.PendingRevision is { } rev)
         {
             Detail.Children.Add(Banner("The assistant suggested a revision (yours is kept until you choose):", "TileAmber"));
@@ -486,15 +491,31 @@ public sealed partial class TasksPage : UserControl
         }
     }
 
+    private Grid? _saveRow;
+    private string _deliverableOriginal = "";
+
+    /// <summary>Something in the form changed: show Save changes.</summary>
+    private void MarkDirty()
+    {
+        _dirty = true;
+        if (_saveRow is not null) _saveRow.Visibility = Visibility.Visible;
+    }
+
     private void SaveFields()
     {
         var t = SelectedTask;
         if (_tasks is null || t is null) return;
         var newDate = _datePicker?.Date is { } dt ? DateOnly.FromDateTime(dt.Date) : (DateOnly?)null;
-        Do(() => _tasks.Edit(Actor.User, t.Id, _loadedVersion,
-            title: _titleBox?.Text, details: _detailsBox?.Text, priority: _editPriority,
-            date: newDate, clearDate: newDate is null && t.Date is not null,
-            dateType: _hardSwitch?.IsOn == true ? DateKind.Hard : DateKind.Flexible));
+        var deliverable = _deliverableBox?.Text ?? "";
+        var deliverableChanged = deliverable != _deliverableOriginal;
+        Do(() =>
+        {
+            var saved = _tasks.Edit(Actor.User, t.Id, _loadedVersion,
+                title: _titleBox?.Text, details: _detailsBox?.Text, priority: _editPriority,
+                date: newDate, clearDate: newDate is null && t.Date is not null,
+                dateType: _hardSwitch?.IsOn == true ? DateKind.Hard : DateKind.Flexible);
+            return deliverableChanged ? _tasks.SaveDeliverable(Actor.User, t.Id, deliverable) : saved;
+        });
     }
 
     /// <summary>Runs a change; on a rule or version conflict, shows why and reloads the latest version.</summary>
