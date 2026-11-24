@@ -152,7 +152,14 @@ fun BriefCard(vm: AppViewModel) {
     var expanded by remember { mutableStateOf(false) }
     var player by remember { mutableStateOf<android.media.MediaPlayer?>(null) }
     var status by remember { mutableStateOf("") }
-    LaunchedEffect(Unit) { brief = runCatching { vm.kiosk?.brief() }.getOrNull() }
+    LaunchedEffect(Unit) {
+        // The kiosk connection may not be ready yet at launch: retry soon, then refresh every few minutes.
+        while (true) {
+            val b = runCatching { vm.kiosk?.brief() }.getOrNull()
+            if (b != null && player == null) brief = b
+            kotlinx.coroutines.delay(if (b == null) 3_000 else 300_000)
+        }
+    }
     DisposableEffect(Unit) { onDispose { player?.release() } }
     val b = brief ?: return
     if (!b.available || b.dismissed) return
