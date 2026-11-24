@@ -61,6 +61,12 @@ public sealed class AssistantSettings
     public string? SpeechEndpoint { get; set; }
     public string TranscribeModel { get; set; } = "mai-transcribe-2-streaming";
     public string Voice { get; set; } = "en-US-Harper:MAI-Voice-2.1-Flash";
+    /// <summary>Minutes before a meeting that the prep heads-up arrives (0 turns it off).</summary>
+    public int MeetingPrepMinutes { get; set; } = 30;
+
+    /// <summary>Whether meeting prep may web-search outside people and companies in the meeting (sends their names to Bing).</summary>
+    public bool MeetingPrepWebSearch { get; set; } = true;
+
     /// <summary>Seconds of silence after you stop talking before listening ends (pauses shorter than this are kept).</summary>
     public double EndSilenceSeconds { get; set; } = 2.5;
 

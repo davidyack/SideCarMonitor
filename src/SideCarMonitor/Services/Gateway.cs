@@ -116,7 +116,7 @@ public sealed class Gateway : IAsyncDisposable
             var s = x.State;
             return Results.Json(new
             {
-                available = true, busy = x.Busy, lastUpdate = s.LastUpdate, lastResult = s.LastResult, postsRead = s.PostsRead,
+                available = true, busy = x.Busy, lastUpdate = s.LastUpdate, health = x.HealthLine(), lastResult = s.LastResult, postsRead = s.PostsRead,
                 signal = x.Signal.Take(60).Select(XPostJson), noise = x.Noise.Take(60).Select(XPostJson), saved = x.SavedPosts.Take(60).Select(XPostJson),
                 listCandidates = x.ListCandidates.Take(25).Select(a => new { a.Name, a.Username, a.Seen, signal = a.Signal + a.YourSignal }),
                 noisy = x.NoisyAccounts.Take(15).Select(a => new { a.Id, a.Name, a.Username, a.Seen, noise = a.Seen - a.Signal }),
@@ -161,6 +161,34 @@ public sealed class Gateway : IAsyncDisposable
             var error = await tools.UserAddAsync(b["calendar"]?.GetValue<string>() ?? "", b["subject"]?.GetValue<string>() ?? "Busy", start, start.AddMinutes(minutes));
             return error is null ? Results.Ok(new { ok = true }) : Results.Json(new { error }, statusCode: 400);
         });
+    }
+
+    public MeetingPrep? MeetingPrep { get; set; }
+    /// <summary>Forecast for the phone (highlights, hours, days), set by the window.</summary>
+    public Func<object?>? Forecast { get; set; }
+
+    private void MapMeetingsAndWeather(WebApplication app)
+    {
+        // Meetings in the next 24 hours, with the prep note once it's written (the phone schedules its heads-ups from this).
+        app.MapGet("/api/meetings", async () =>
+        {
+            if (Calendar is not { } cal) return Results.Json(new { available = false });
+            var events = (await cal.DayAsync(DateTime.Today)).Concat(await cal.DayAsync(DateTime.Today.AddDays(1)))
+                .Where(e => !e.AllDay && e.End > DateTime.Now && e.Start < DateTime.Now.AddHours(24) && e.ShowAs != "free")
+                .GroupBy(e => SideCarMonitor.Services.MeetingPrep.KeyOf(e)).Select(g => g.First()).OrderBy(e => e.Start);
+            return Results.Json(new
+            {
+                available = true, leadMinutes = MeetingPrep?.LeadMinutes ?? 30,
+                meetings = events.Select(e => new
+                {
+                    key = SideCarMonitor.Services.MeetingPrep.KeyOf(e), calendar = e.Calendar, subject = e.Subject, start = e.Start, end = e.End,
+                    location = e.Location, organizer = e.Organizer, joinUrl = e.JoinUrl, showAs = e.ShowAs, response = e.Response,
+                    worthPrep = SideCarMonitor.Services.MeetingPrep.Worth(e),
+                    prep = MeetingPrep?.Find(e) is { } p ? VoiceService.PlainText(p.Text) : "",
+                }),
+            });
+        });
+        app.MapGet("/api/weather/forecast", () => Results.Json(Forecast?.Invoke() ?? new { error = "No forecast" }));
     }
 
     private void MapBriefs(WebApplication app)
@@ -232,12 +260,23 @@ public sealed class Gateway : IAsyncDisposable
                 available = true, running = li.IsRunning, needsAttention = s.NeedsAttention,
                 lastRun = s.LastRun, lastRunResult = s.LastRunResult, digest = s.Digest, digestAt = s.DigestAt,
                 signal = li.Signal.Take(60).Select(PostJson), noise = li.Noise.Take(60).Select(PostJson),
+                health = li.Health().ToString(),
+                sources = li.NoisySources().Take(40).Select(x => new { author = x.Author, headline = x.Headline, posts = x.Posts, signal = x.Signal, ads = x.Ads, suppressed = x.Suppressed }),
                 podcast = new
                 {
                     status = s.PodcastStatus, at = s.PodcastAt, seconds = Math.Round(s.PodcastSeconds), posts = s.PodcastPostIds.Count,
-                    cleared = s.PodcastCleared, candidates = li.PodcastCandidates,
+                    cleared = s.PodcastCleared, candidates = li.PodcastCandidates, hasNews = li.PodcastHasNews,
                 },
             });
+        });
+
+        app.MapPost("/api/linkedin/suppress", (JsonObject b) =>
+        {
+            if (LinkedIn is not { } li) return Results.NotFound();
+            var author = b["author"]?.GetValue<string>() ?? "";
+            if (author.Length == 0) return Results.BadRequest();
+            li.SetSuppressed(author, b["suppressed"]?.GetValue<bool>() != false);
+            return Results.Ok(new { ok = true });
         });
 
         // Podcast: prepare an episode, download its audio, and "Done" (clears its posts from the feed).
@@ -372,6 +411,7 @@ public sealed class Gateway : IAsyncDisposable
         MapX(app);
         MapCalendar(app);
         MapBriefs(app);
+        MapMeetingsAndWeather(app);
         app.MapPost("/api/activity/clear", () => { ClearActivity?.Invoke(); return Results.Ok(new { ok = true }); });
 
         // Speech-to-text: body is 16 kHz, 16-bit, mono PCM WAV recorded on the phone or watch.

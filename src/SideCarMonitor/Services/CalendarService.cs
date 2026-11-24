@@ -9,7 +9,8 @@ namespace SideCarMonitor.Services;
 
 /// <summary>One meeting or appointment from one of your calendars (times are local).</summary>
 public sealed record CalEvent(string Calendar, string Subject, DateTime Start, DateTime End, bool AllDay, string ShowAs,
-    string Location, string JoinUrl, string Organizer, string WebLink);
+    string Location, string JoinUrl, string Organizer, string WebLink,
+    IReadOnlyList<string>? Attendees = null, bool IsOrganizer = false, string Response = "", string Preview = "");
 
 /// <summary>
 /// Your M365 calendars (e.g. CTC and PMCollab) through Microsoft Graph, using the "SideCar Calendar" app
@@ -98,14 +99,17 @@ public sealed class CalendarService
 
     private async Task<List<CalEvent>> LoadAsync(DateTime from, DateTime to)
     {
-        await AppAsync();
+        var app = await AppAsync();
         var all = new List<CalEvent>();
+        // Your own addresses (every signed-in calendar), so you're never listed as one of the attendees.
+        _me ??= (await app.GetAccountsAsync()).Select(a => a.Username).Where(u => !string.IsNullOrEmpty(u)).ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var label in _accounts.Keys)
         {
             try
             {
                 var path = $"me/calendarView?startDateTime={from.ToUniversalTime():o}&endDateTime={to.ToUniversalTime():o}" +
-                           "&$select=subject,start,end,isAllDay,showAs,isCancelled,location,onlineMeeting,organizer,webLink&$orderby=start/dateTime&$top=250";
+                           "&$select=subject,start,end,isAllDay,showAs,isCancelled,location,onlineMeeting,organizer,webLink,attendees,isOrganizer,responseStatus,bodyPreview" +
+                           "&$orderby=start/dateTime&$top=250";
                 var json = await GraphAsync(label, HttpMethod.Get, path);
                 foreach (var e in json?["value"]?.AsArray() ?? [])
                 {
@@ -118,7 +122,19 @@ public sealed class CalendarService
                         e["location"]?["displayName"]?.GetValue<string>() ?? "",
                         e["onlineMeeting"]?["joinUrl"]?.GetValue<string>() ?? "",
                         e["organizer"]?["emailAddress"]?["name"]?.GetValue<string>() ?? "",
-                        e["webLink"]?.GetValue<string>() ?? ""));
+                        e["webLink"]?.GetValue<string>() ?? "",
+                        // Attendees as "Name <domain>": enough to tell who's outside, without full addresses.
+                        (e["attendees"]?.AsArray() ?? []).Select(a =>
+                        {
+                            var name = a?["emailAddress"]?["name"]?.GetValue<string>() ?? "";
+                            var mail = a?["emailAddress"]?["address"]?.GetValue<string>() ?? "";
+                            if (_me.Contains(mail)) return "";
+                            var domain = mail.Contains('@') ? mail[(mail.IndexOf('@') + 1)..] : "";
+                            return domain.Length > 0 ? $"{name} <{domain}>" : name;
+                        }).Where(s => s.Length > 0).ToList(),
+                        e["isOrganizer"]?.GetValue<bool>() == true,
+                        e["responseStatus"]?["response"]?.GetValue<string>() ?? "",
+                        (e["bodyPreview"]?.GetValue<string>() ?? "") is var bp && bp.Length > 400 ? bp[..400] : bp));
                 }
                 Problems.Remove(label);
             }
@@ -129,6 +145,8 @@ public sealed class CalendarService
         }
         return all.OrderBy(e => e.Start).ToList();
     }
+
+    private HashSet<string>? _me;
 
     public bool IsStale => DateTime.Now - _loadedAt > TimeSpan.FromMinutes(5);
 

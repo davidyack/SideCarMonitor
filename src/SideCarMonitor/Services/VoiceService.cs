@@ -306,5 +306,12 @@ public sealed class VoiceService : IDisposable
         return System.Text.RegularExpressions.Regex.Replace(string.Join(". ", lines.Where(l => l.Length > 0)).Replace("..", "."), @"\s{2,}", " ");
     }
 
+    /// <summary>Markdown as plain on-screen text: links keep their words, bullets and bold marks go, lines stay.</summary>
+    public static string PlainText(string text)
+    {
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"\[([^\]]+)\]\((?:https?://|www\.)[^)\s]+\)", "$1");
+        return string.Join("\n", text.Split('\n').Select(l => l.Trim().TrimStart('-', '*', '#', ' ').Replace("**", "").Replace("`", "")).Where(l => l.Length > 0));
+    }
+
     public void Dispose() => _synth?.Dispose();
 }

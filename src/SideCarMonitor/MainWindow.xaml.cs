@@ -534,6 +534,7 @@ public sealed partial class MainWindow : Window
         ClockTile.Background = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources[soon ? "TileAmber" : "PanelBackground"];
     }
 
+    private MeetingPrep? _meetingPrep;
     private DateTime _lastMeetingCheck;
     private void CheckMeetings()
     {
@@ -541,6 +542,13 @@ public sealed partial class MainWindow : Window
         _lastMeetingCheck = DateTime.Now;
         if (_calendar.IsStale) _ = _calendar.RefreshAsync();
         UpdateMeetingTile();
+        // The heads-up: prep note ~30 minutes before (written in the background, then shown and spoken).
+        if (_meetingPrep is { } prep && _agent is not null)
+            foreach (var e in prep.Due(_calendar.Events, DateTime.Now).Take(1).ToList())
+            {
+                var facts = MeetingFacts(e);
+                _ = Task.Run(() => prep.MakeAsync(e, facts));
+            }
         foreach (var e in _calendar.Events.Where(e => !e.AllDay && e.ShowAs != "free"))
         {
             var until = e.Start - DateTime.Now;
@@ -549,6 +557,54 @@ public sealed partial class MainWindow : Window
                 ShowMeetingPopup(e);
                 break;
             }
+        }
+    }
+
+    /// <summary>What the kiosk knows that the agent can't look up itself: the rest of today and feed posts by these people.</summary>
+    private string MeetingFacts(CalEvent e)
+    {
+        var lines = new List<string>();
+        var today = _calendar!.Events.Where(o => !o.AllDay && o.Start.Date == e.Start.Date && o != e).OrderBy(o => o.Start).ToList();
+        if (today.Count > 0)
+            lines.Add("REST OF THE DAY: " + string.Join("; ", today.Select(o => $"{o.Start:h:mm}-{o.End:h:mm} {o.Subject} ({o.ShowAs}{(o.IsOrganizer ? ", yours" : "")})")));
+        var names = (e.Attendees ?? []).Select(a => a.Split('<')[0].Trim()).Append(e.Organizer)
+            .Where(n => n.Length > 3).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var posts = new List<string>();
+        foreach (var n in names)
+        {
+            if (_linkedIn is { } li)
+                posts.AddRange(li.State.Posts.Values.Where(p => p.Author.Equals(n, StringComparison.OrdinalIgnoreCase)).OrderByDescending(p => p.FirstSeen).Take(2)
+                    .Select(p => $"LinkedIn, {p.Author} ({p.FirstSeen:MMM d}): {(p.Text.Length > 300 ? p.Text[..300] + "\u2026" : p.Text)}"));
+            if (_x is { } x)
+                posts.AddRange(x.State.Posts.Values.Where(p => p.Author.Equals(n, StringComparison.OrdinalIgnoreCase)).OrderByDescending(p => p.Created).Take(2)
+                    .Select(p => $"X, {p.Author} ({p.Created:MMM d}): {(p.Text.Length > 300 ? p.Text[..300] + "\u2026" : p.Text)}"));
+        }
+        if (posts.Count > 0) lines.Add("RECENT POSTS BY THESE PEOPLE:\n" + string.Join("\n", posts.Take(6)));
+        return string.Join("\n", lines);
+    }
+
+    /// <summary>The heads-up popup: the prep note with Join; spoken briefly unless you're busy with the assistant or a brief.</summary>
+    private void ShowMeetingPrep(MeetingPrep.Prep p)
+    {
+        if (PairingPage.Visibility == Visibility.Visible || p.Start < DateTime.Now) return;
+        _popupEvent = null;
+        _popupWeather = false;
+        _popupJoinUrl = p.JoinUrl.Length > 0 ? p.JoinUrl : null;
+        var mins = Math.Max(1, (int)Math.Ceiling((p.Start - DateTime.Now).TotalMinutes));
+        EventPopupTitle.Text = $"Heads-up: {p.Subject}";
+        EventPopupWhen.Text = $"{p.Start:h:mm tt}\u2013{p.End:h:mm tt} \u00B7 in {mins} min \u00B7 {p.Calendar}";
+        EventPopupAi.Text = VoiceService.PlainText(p.Text);
+        EventPopupImage.Source = null;
+        EventPopupImage.Visibility = Visibility.Collapsed;
+        EventPopupAction.Visibility = _popupJoinUrl is null ? Visibility.Collapsed : Visibility.Visible;
+        EventPopupActionText.Text = "Join";
+        EventPopupActionIcon.Glyph = "\uE8AA";
+        EventPopup.Visibility = Visibility.Visible;
+        StartPopupCountdown(600);
+        if (_voice is { } voice && !Assistant.IsBusy && _briefSpeech is null)
+        {
+            var goal = p.Text.Split('\n').Select(l => l.Trim().TrimStart('-', '*', ' ')).FirstOrDefault(l => l.StartsWith("Goal", StringComparison.OrdinalIgnoreCase));
+            _ = voice.SpeakAsync($"Heads-up: {p.Subject} starts in {mins} minutes. The prep note is on screen." + (goal is null ? "" : " " + goal), CancellationToken.None);
         }
     }
 
@@ -561,7 +617,8 @@ public sealed partial class MainWindow : Window
         _popupJoinUrl = e.JoinUrl.Length > 0 ? e.JoinUrl : null;
         EventPopupTitle.Text = e.Subject;
         EventPopupWhen.Text = $"{e.Start:h:mm tt}\u2013{e.End:h:mm tt} \u00B7 in {Math.Max(1, Math.Ceiling((e.Start - DateTime.Now).TotalMinutes))} min \u00B7 {e.Calendar}";
-        EventPopupAi.Text = string.Join(" \u00B7 ", new[] { e.Location, e.Organizer.Length > 0 ? $"Organizer: {e.Organizer}" : "", e.JoinUrl.Length > 0 ? "Online meeting" : "" }.Where(s => s.Length > 0));
+        EventPopupAi.Text = _meetingPrep?.Find(e) is { } prep ? VoiceService.PlainText(prep.Text)
+            : string.Join(" \u00B7 ", new[] { e.Location, e.Organizer.Length > 0 ? $"Organizer: {e.Organizer}" : "", e.JoinUrl.Length > 0 ? "Online meeting" : "" }.Where(s => s.Length > 0));
         EventPopupImage.Source = null;
         EventPopupImage.Visibility = Visibility.Collapsed;
         EventPopupAction.Visibility = _popupJoinUrl is null ? Visibility.Collapsed : Visibility.Visible;
@@ -1127,6 +1184,11 @@ public sealed partial class MainWindow : Window
         _judge = EventJudge.Create(a, credential);
         _webSearch = WebSearch.Create(a, credential);
         if (_judge is not null) _judge.Interests = a.Interests;
+        if (a.MeetingPrepMinutes > 0)
+        {
+            _meetingPrep = new MeetingPrep(_agent) { LeadMinutes = a.MeetingPrepMinutes, UseWeb = a.MeetingPrepWebSearch };
+            _meetingPrep.Ready += p => DispatcherQueue.TryEnqueue(() => ShowMeetingPrep(p));
+        }
         _linkedIn = new LinkedInFeed(_judge, _agent) { Voice = _voice, Tasks = _taskService, Interests = a.Interests };
         if (XClient.Create() is { SignedIn: true } xClient)
             _x = new XFeed(xClient, _judge, _agent) { Voice = _voice, Tasks = _taskService, Interests = a.Interests };
@@ -1655,6 +1717,8 @@ public sealed partial class MainWindow : Window
             _gateway.Calendar = _calendar;
             _gateway.CalendarTools = _calendarTools;
             _gateway.Briefs = _briefs;
+            _gateway.MeetingPrep = _meetingPrep;
+            _gateway.Forecast = () => WeatherForecastForAgent(12, 6, 0);
             if (_voice is { } voice) _gateway.Synthesize = text => voice.SynthesizeWavAsync(text, CancellationToken.None);
             _gateway.ClearActivity = () => DispatcherQueue.TryEnqueue(() =>
             {
