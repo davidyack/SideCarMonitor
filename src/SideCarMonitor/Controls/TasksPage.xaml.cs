@@ -36,6 +36,62 @@ public sealed partial class TasksPage : UserControl
 
     public TasksPage() => InitializeComponent();
 
+    // ---- Voice note: Add note / Answer open a big panel that listens right away ----
+    /// <summary>Set by the window: used to listen for notes.</summary>
+    public VoiceService? Voice { get; set; }
+    private Func<string, TaskItem>? _voiceSave;
+    private CancellationTokenSource? _voiceListen;
+
+    private void ShowVoiceNote(string title, string saveLabel, Func<string, TaskItem> save)
+    {
+        _voiceSave = save;
+        VoiceNoteTitle.Text = title;
+        VoiceNoteSave.Content = saveLabel;
+        VoiceNoteText.Text = "";
+        VoiceNote.Visibility = Visibility.Visible;
+        _ = ListenForNoteAsync();
+    }
+
+    private async Task ListenForNoteAsync()
+    {
+        if (Voice is null) { VoiceNoteStatus.Text = "Voice isn't available: type the note instead."; return; }
+        _voiceListen?.Cancel();
+        var cts = _voiceListen = new CancellationTokenSource();
+        var before = VoiceNoteText.Text.TrimEnd();
+        VoiceNoteStatus.Text = "Listening\u2026";
+        VoiceNoteListenText.Text = "Listening\u2026";
+        try
+        {
+            var said = await Voice.ListenOnceAsync(partial => DispatcherQueue.TryEnqueue(() =>
+            {
+                if (!cts.IsCancellationRequested) VoiceNoteText.Text = (before.Length > 0 ? before + " " : "") + partial;
+            }), cts.Token);
+            if (cts.IsCancellationRequested) return;
+            VoiceNoteText.Text = (before.Length > 0 ? before + " " : "") + said;
+            VoiceNoteStatus.Text = string.IsNullOrWhiteSpace(VoiceNoteText.Text) ? "Didn't catch that. Tap Listen again." : "Got it. Save, or Listen again to add more.";
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { VoiceNoteStatus.Text = $"Couldn't listen: {ex.Message}"; }
+        finally { if (_voiceListen == cts) VoiceNoteListenText.Text = "Listen again"; }
+    }
+
+    private void VoiceNoteListen_Click(object sender, RoutedEventArgs e) => _ = ListenForNoteAsync();
+
+    private void VoiceNoteCancel_Click(object sender, RoutedEventArgs e)
+    {
+        _voiceListen?.Cancel();
+        VoiceNote.Visibility = Visibility.Collapsed;
+    }
+
+    private void VoiceNoteSave_Click(object sender, RoutedEventArgs e)
+    {
+        var text = VoiceNoteText.Text.Trim();
+        if (text.Length == 0) { VoiceNoteStatus.Text = "Nothing to save yet."; return; }
+        _voiceListen?.Cancel();
+        VoiceNote.Visibility = Visibility.Collapsed;
+        if (_voiceSave is { } save) Do(() => save(text));
+    }
+
     public void Initialize(TaskService tasks, TaskAssistant? assistant)
     {
         _tasks = tasks;
@@ -316,9 +372,8 @@ public sealed partial class TasksPage : UserControl
         if (t.History.FirstOrDefault(e => e.Id == t.PendingQuestionId) is { } q)
         {
             Detail.Children.Add(Banner($"Assistant asks: {q.Text}", "TileAmber"));
-            var answer = new TextBox { PlaceholderText = "Your answer", FontSize = Num("FontBody"), MinHeight = Num("TouchTarget"), AcceptsReturn = true, TextWrapping = TextWrapping.Wrap };
-            Detail.Children.Add(answer);
-            Detail.Children.Add(ButtonRow(("Send answer", "TileCobalt", () => Do(() => _tasks.AddNote(Actor.User, t.Id, answer.Text)))));
+            Detail.Children.Add(ButtonRow(("\U0001F3A4  Answer", "TileCobalt", () =>
+                ShowVoiceNote($"Answer: {q.Text}", "Send answer", text => _tasks.AddNote(Actor.User, t.Id, text)))));
         }
 
         // Fields
@@ -407,9 +462,8 @@ public sealed partial class TasksPage : UserControl
 
         // Notes & activity
         Detail.Children.Add(Label("Notes and activity"));
-        var note = new TextBox { PlaceholderText = "Add a note", FontSize = Num("FontBody"), MinHeight = Num("TouchTarget"), AcceptsReturn = true, TextWrapping = TextWrapping.Wrap };
-        Detail.Children.Add(note);
-        Detail.Children.Add(ButtonRow(("Add note", "PanelBorder", () => Do(() => _tasks.AddNote(Actor.User, t.Id, note.Text)))));
+        Detail.Children.Add(ButtonRow(("\U0001F3A4  Add note", "TileCobalt", () =>
+            ShowVoiceNote($"Note for \u201C{t.Title}\u201D", "Save note", text => _tasks.AddNote(Actor.User, t.Id, text)))));
         foreach (var entry in Enumerable.Reverse(t.History).Take(25))
         {
             var row = new Grid { ColumnSpacing = Num("Gap") };

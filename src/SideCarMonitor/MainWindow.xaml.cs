@@ -1154,6 +1154,7 @@ public sealed partial class MainWindow : Window
         {
             _taskTools = new TaskAssistant(_taskService, _agent, DispatcherQueue);
             TasksPageView.Initialize(_taskService, _taskTools);
+            TasksPageView.Voice = _voice;
             _ = _taskTools.RunDueJobsAsync();
         }
         _ = StartGatewayAsync();

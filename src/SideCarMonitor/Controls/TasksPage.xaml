@@ -152,5 +152,31 @@
                 </Grid>
             </Border>
         </Grid>
+
+        <!-- Voice note: opens listening; big Save / Listen again / Cancel -->
+        <Grid x:Name="VoiceNote" Grid.RowSpan="5" Visibility="Collapsed" Background="#CC000000" Canvas.ZIndex="20" Margin="-24">
+            <Border MaxWidth="1300" VerticalAlignment="Center" Margin="{StaticResource PagePadding}" Padding="{StaticResource PanelPadding}"
+                    Background="{StaticResource PanelBackground}" BorderBrush="{StaticResource TileCobalt}" BorderThickness="2" CornerRadius="{StaticResource Corner}">
+                <StackPanel Spacing="{StaticResource Gap}">
+                    <TextBlock x:Name="VoiceNoteTitle" FontSize="{StaticResource FontTitle}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                    <TextBlock x:Name="VoiceNoteStatus" FontSize="{StaticResource FontBody}" Foreground="{StaticResource AccentText}" />
+                    <TextBox x:Name="VoiceNoteText" FontSize="{StaticResource FontTitle}" MinHeight="200" AcceptsReturn="True" TextWrapping="Wrap"
+                             PlaceholderText="Speak, or type here" />
+                    <StackPanel Orientation="Horizontal" Spacing="{StaticResource Gap}" HorizontalAlignment="Right">
+                        <Button x:Name="VoiceNoteListen" Click="VoiceNoteListen_Click" FontSize="{StaticResource FontBody}" Height="{StaticResource TouchTarget}"
+                                Padding="{StaticResource PanelPadding}" CornerRadius="{StaticResource SmallCorner}" Background="{StaticResource TileAmber}" Foreground="White">
+                            <StackPanel Orientation="Horizontal" Spacing="{StaticResource Gap}">
+                                <FontIcon Glyph="&#xE720;" FontSize="{StaticResource FontIcon}" />
+                                <TextBlock x:Name="VoiceNoteListenText" Text="Listen again" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                        <Button Content="Cancel" Click="VoiceNoteCancel_Click" FontSize="{StaticResource FontBody}" Height="{StaticResource TouchTarget}"
+                                Padding="{StaticResource PanelPadding}" CornerRadius="{StaticResource SmallCorner}" />
+                        <Button x:Name="VoiceNoteSave" Content="Save note" Click="VoiceNoteSave_Click" FontSize="{StaticResource FontBody}" Height="{StaticResource TouchTarget}"
+                                Padding="{StaticResource PanelPadding}" CornerRadius="{StaticResource SmallCorner}" Background="{StaticResource TileEmerald}" Foreground="White" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
     </Grid>
 </UserControl>
