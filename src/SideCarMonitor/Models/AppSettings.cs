@@ -66,6 +66,9 @@ public sealed class AssistantSettings
 
     /// <summary>Microsoft-Decision deployment that labels camera event pictures; null or empty turns it off.</summary>
     public string? DecisionDeployment { get; set; } = "decision-dz";
+    /// <summary>Foundry project name (for the web search tool), e.g. "sidecardemo"; empty turns web search off.</summary>
+    public string? FoundryProject { get; set; }
+
     /// <summary>What you care about in your feeds (LinkedIn, X): used to sort Signal from Noise and to frame briefings.</summary>
     public string Interests { get; set; } = "startups and founders, AI (models, agents, AI products), Microsoft (Power Platform, Copilot, Azure, Dynamics), product management";
 

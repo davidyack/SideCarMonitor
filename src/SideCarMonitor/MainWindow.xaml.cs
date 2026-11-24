@@ -625,6 +625,18 @@ public sealed partial class MainWindow : Window
         UpdateReminderBar();
     }
 
+    // ---- Web search (Foundry Web IQ) ----
+    private WebSearch? _webSearch;
+
+    private async Task<object?> WebSearchAsync(AgentHost.ToolCall call)
+    {
+        if (_webSearch is null) return new { error = "Web search isn't set up (assistant.foundryProject in settings)." };
+        var q = call.Args?["query"] is System.Text.Json.Nodes.JsonValue v && v.TryGetValue<string>(out var s) ? s.Trim() : "";
+        if (q.Length == 0) return new { error = "Need a query." };
+        try { return await Task.Run(() => _webSearch.SearchAsync(q)); }
+        catch (Exception ex) { return new { error = ex.Message }; }
+    }
+
     // ---- Flights (Duffel, read-only) ----
     private FlightSearch? _flights;
 
@@ -1100,6 +1112,7 @@ public sealed partial class MainWindow : Window
         _agent = new AgentHost(a, credential, DispatcherQueue);
         _voice = new VoiceService(a, credential);
         _judge = EventJudge.Create(a, credential);
+        _webSearch = WebSearch.Create(a, credential);
         if (_judge is not null) _judge.Interests = a.Interests;
         _linkedIn = new LinkedInFeed(_judge, _agent) { Voice = _voice, Tasks = _taskService, Interests = a.Interests };
         if (XClient.Create() is { SignedIn: true } xClient)
@@ -1135,6 +1148,7 @@ public sealed partial class MainWindow : Window
         {
             "get_local_weather" => Task.FromResult<object?>(LocalWeatherForAgent()),
             "flight_search" => FlightSearchAsync(call),
+            "web_search" => WebSearchAsync(call),
             _ when call.Name.StartsWith("reminder_") => Task.FromResult<object?>(_reminders?.Handle(call, _agent?.TurnText(call.Turn)) ?? new { error = "Reminders aren't available." }),
             _ when call.Name.StartsWith("calendar_") => _calendarTools is null
                 ? Task.FromResult<object?>(new { error = "Calendars aren't set up." })
