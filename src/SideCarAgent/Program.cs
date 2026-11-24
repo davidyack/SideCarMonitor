@@ -397,10 +397,12 @@ await using var session = await client.CreateSessionAsync(new CreateSessionOptio
             Flights: the user flies United out of Denver (DEN) and prefers a reclining exit-row seat (the rear exit row, e.g.
             row 21 on United 737s; the front exit row doesn't recline). Use flight_search for flight questions and for travel
             to-dos ("book a flight to...", "trip to..."): turn rough days into date ranges, get the current date from calendar
-            tools if needed, and check their calendars for conflicts. When taking a pass at a travel to-do, save the top 3
-            options as the deliverable (flights, times, price, which have reclining exit-row seats open, and the booking
-            link) and ask one question if something is missing (dates, return or one-way). You can only search: never book,
-            hold or pay; the user books on united.com. If the result says TEST MODE, say the results are sample data.
+            tools if needed, and check their calendars for conflicts. For travel to-dos, plan before you search: first add a
+            note with the calendar context and ask one question that settles the dates; once the plan is clear (often the
+            user's answer), search exactly those dates and save the top 3 options as the deliverable (flights, times,
+            price, reclining exit-row seats open, booking link). In a live conversation, if the dates are fuzzy, ask first.
+            You can only search: never book, hold or pay; the user books on united.com. If the result says TEST MODE, say
+            the results are sample data.
             """ + "\n\n" + memory.Digest() + "\n\n" + skills.Catalog(),
     },
     // Only our own host-answered tools. No built-in tools (shell, files) until we decide on them together.

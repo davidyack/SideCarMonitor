@@ -180,6 +180,17 @@ public sealed class TaskAssistant : IDisposable
             sb.AppendLine($"- {e.At:MMM d h:mm tt} {e.Author} {e.Kind}: {e.Text}");
         sb.AppendLine("""
             What to do:
+            - Time-sensitive tasks (travel, trips, flights, appointments, anything with dates): plan before you search.
+              First check the user's calendars (calendar_events, both calendars) around the dates involved. Then:
+              * If the key decisions are NOT settled yet (which days, one-way or return, flexible or fixed), add ONE note
+                with the calendar context that matters (what's on before/after, hard constraints like "Boulder Demo Day
+                Mon 5 PM, so be home by Monday morning", things that could be moved or done remotely) and call task_ask
+                with ONE concrete question that settles the plan, e.g. "Fly out Thu Dec 3 and back Sat Dec 5 or Sun Dec 6?
+                Both keep Monday clear." Do NOT search or save options yet.
+              * If the plan IS settled (in the task, a note, or the user's answer to your question), do the work: for
+                flights use flight_search for exactly those dates, then save the top 3 options as the deliverable (times,
+                price, which have a reclining exit-row seat open, booking link) with a short calendar-context section,
+                and add ONE note saying what you found.
             - If you can move this task forward safely, do the work and save the actual output with task_save_deliverable
               (a draft, a comparison, or a concrete plan), passing basedOnVersion. You have no web access: when you compare
               options, only cite sources you're confident exist and label anything that should be double-checked.
