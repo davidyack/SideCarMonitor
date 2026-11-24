@@ -728,6 +728,7 @@ public sealed partial class MainWindow : Window
                 Source = Windows.Media.Core.MediaSource.CreateFromStream(stream, "audio/wav"),
             };
             player.MediaEnded += (_, _) => DispatcherQueue.TryEnqueue(() => { if (_briefPlayer == player) StopBriefSpeech(); });
+            PlaybackMemory.Track(player, $"brief:{_shownBrief.At:o}");
             player.Play();
         }
         catch (OperationCanceledException) { }

@@ -61,6 +61,12 @@ public sealed class AssistantSettings
     public string? SpeechEndpoint { get; set; }
     public string TranscribeModel { get; set; } = "mai-transcribe-2-streaming";
     public string Voice { get; set; } = "en-US-Harper:MAI-Voice-2.1-Flash";
+    /// <summary>Seconds of silence after you stop talking before listening ends (pauses shorter than this are kept).</summary>
+    public double EndSilenceSeconds { get; set; } = 2.5;
+
+    /// <summary>In a voice conversation, how long the mic stays open after a reply before the conversation ends.</summary>
+    public double FollowUpSeconds { get; set; } = 8;
+
     /// <summary>Part of the microphone's name, e.g. "RODECaster Duo Main"; null = Windows default mic.</summary>
     public string? Microphone { get; set; }
 

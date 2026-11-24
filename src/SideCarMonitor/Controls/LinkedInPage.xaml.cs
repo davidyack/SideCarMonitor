@@ -201,7 +201,9 @@ public sealed partial class LinkedInPage : UserControl
     {
         if (_feed is null) return;
         // Anything new since the last episode? Make a fresh one first, then play it.
-        if (!EpisodeReady || (_feed.PodcastHasNews && !(Playing || _player is not null && _playerEpisode == _feed.State.PodcastAt && _player.PlaybackSession.Position > TimeSpan.Zero)))
+        // (An episode you were partway through, even before a restart, is finished first.)
+        var midway = PlaybackMemory.Get($"linkedin:{_feed.State.PodcastAt:o}") is not null;
+        if (!EpisodeReady || (_feed.PodcastHasNews && !midway && !(Playing || _player is not null && _playerEpisode == _feed.State.PodcastAt && _player.PlaybackSession.Position > TimeSpan.Zero)))
         {
             RenderBriefingBarPreparing();
             var error = await Task.Run(() => _feed.PreparePodcastAsync());
@@ -216,6 +218,8 @@ public sealed partial class LinkedInPage : UserControl
             };
             _player.MediaEnded += (_, _) => DispatcherQueue.TryEnqueue(RenderBriefingBar);
             _playerEpisode = _feed.State.PodcastAt;
+            PlaybackMemory.Track(_player, $"linkedin:{_feed.State.PodcastAt:o}");
+            if (PlaybackMemory.Get($"linkedin:{_feed.State.PodcastAt:o}") is { } at) _briefingNote = $"Picking up where you left off ({(int)at.TotalMinutes}:{at.Seconds:00})";
         }
         _player.Play();
         _clock ??= new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };

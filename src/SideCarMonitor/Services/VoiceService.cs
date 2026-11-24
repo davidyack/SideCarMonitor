@@ -32,11 +32,19 @@ public sealed class VoiceService : IDisposable
     private SpeechConfig CreateConfig() =>
         SpeechConfig.FromEndpoint(new Uri(_settings.SpeechEndpoint!), _credential);
 
+    private static readonly TimeSpan MaxListen = TimeSpan.FromSeconds(90);
+
+    /// <summary>How long the mic stays open for a follow-up in a voice conversation (assistant.followUpSeconds).</summary>
+    public TimeSpan FollowUpTimeout => TimeSpan.FromSeconds(Math.Clamp(_settings.FollowUpSeconds, 3, 30));
+
     /// <summary>
-    /// Listens on the default microphone until the first finished phrase (you pause), or until
-    /// nothing is heard for a few seconds. Reports partial text while you talk. Returns "" if nothing was said.
+    /// Listens on the default microphone and keeps going through short pauses: it ends after
+    /// assistant.endSilenceSeconds (default 2.5 s) of silence once you've spoken, when nothing is heard within
+    /// <paramref name="noSpeechTimeout"/> (default 8 s), after 90 s, or when <paramref name="ct"/> is cancelled
+    /// (e.g. Done tapped), returning everything heard so far. Reports the running text while you talk.
+    /// Returns "" if nothing was said.
     /// </summary>
-    public async Task<string> ListenOnceAsync(Action<string> onPartial, CancellationToken ct)
+    public async Task<string> ListenOnceAsync(Action<string> onPartial, CancellationToken ct, TimeSpan? noSpeechTimeout = null)
     {
         var config = CreateConfig();
         config.Model = _settings.TranscribeModel;
@@ -45,42 +53,59 @@ public sealed class VoiceService : IDisposable
         using var audio = micId is null ? AudioConfig.FromDefaultMicrophoneInput() : AudioConfig.FromMicrophoneInput(micId);
         using var recognizer = new SpeechRecognizer(config, audio);
 
-        var done = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var heardSomething = false;
+        var endSilence = TimeSpan.FromSeconds(Math.Clamp(_settings.EndSilenceSeconds, 0.8, 10));
+        var noSpeech = noSpeechTimeout ?? NoSpeechTimeout;
+        var gate = new object();
+        var parts = new List<string>();
+        var partial = "";
+        var heard = false;
+        var lastHeard = DateTime.UtcNow;
+        Exception? failure = null;
+        var stopped = false;
+        string Text() => string.Join(" ", partial.Length > 0 ? parts.Append(partial) : parts).Trim();
 
         recognizer.Recognizing += (_, e) =>
         {
-            heardSomething = true;
-            onPartial(e.Result.Text);
+            string now;
+            lock (gate) { heard = true; lastHeard = DateTime.UtcNow; partial = e.Result.Text.Trim(); now = Text(); }
+            onPartial(now);
         };
         recognizer.Recognized += (_, e) =>
         {
-            if (e.Result.Reason == ResultReason.RecognizedSpeech && !string.IsNullOrWhiteSpace(e.Result.Text))
-                done.TrySetResult(e.Result.Text.Trim());
+            if (e.Result.Reason != ResultReason.RecognizedSpeech || string.IsNullOrWhiteSpace(e.Result.Text)) return;
+            string now;
+            lock (gate) { heard = true; lastHeard = DateTime.UtcNow; parts.Add(e.Result.Text.Trim()); partial = ""; now = Text(); }
+            onPartial(now);
         };
         recognizer.Canceled += (_, e) =>
         {
-            if (e.Reason == CancellationReason.Error)
-                done.TrySetException(new InvalidOperationException($"Speech recognition failed: {e.ErrorDetails}"));
-            else
-                done.TrySetResult("");
+            if (e.Reason == CancellationReason.Error) failure = new InvalidOperationException($"Speech recognition failed: {e.ErrorDetails}");
+            stopped = true;
         };
-        recognizer.SessionStopped += (_, _) => done.TrySetResult("");
+        recognizer.SessionStopped += (_, _) => stopped = true;
 
+        var started = DateTime.UtcNow;
         await recognizer.StartContinuousRecognitionAsync();
         try
         {
-            using var reg = ct.Register(() => done.TrySetResult(""));
-            var silence = Task.Delay(NoSpeechTimeout, ct).ContinueWith(_ =>
+            while (!stopped && !ct.IsCancellationRequested)
             {
-                if (!heardSomething) done.TrySetResult("");
-            }, TaskScheduler.Default);
-            return await done.Task;
+                try { await Task.Delay(150, ct); } catch (OperationCanceledException) { break; }
+                var now = DateTime.UtcNow;
+                bool h; DateTime last; bool midPhrase;
+                lock (gate) { h = heard; last = lastHeard; midPhrase = partial.Length > 0; }
+                if (!h && now - started > noSpeech) break;
+                // Pause long enough: done. A phrase still "in progress" gets a little extra for its final result.
+                if (h && now - last > endSilence + (midPhrase ? TimeSpan.FromSeconds(1.5) : TimeSpan.Zero)) break;
+                if (now - started > MaxListen) break;
+            }
         }
         finally
         {
-            await recognizer.StopContinuousRecognitionAsync();
+            await recognizer.StopContinuousRecognitionAsync(); // flushes the last phrase
         }
+        if (failure is not null && parts.Count == 0) throw failure;
+        lock (gate) return Text();
     }
 
     /// <summary>Speaks text on the default speaker with the configured MAI voice. Returns when done or stopped.</summary>

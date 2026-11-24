@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using Microsoft.UI.Dispatching;
@@ -114,7 +114,26 @@ public sealed partial class AssistantOverlay : UserControl
     private async void MicButton_Click(object sender, RoutedEventArgs e)
     {
         OpenPanel();
+        _voiceConversation = true;
         await ListenAndRespondAsync();
+    }
+
+    /// <summary>Started by voice: after each spoken reply the mic reopens until you go quiet, say "that's all", or tap Stop.</summary>
+    private bool _voiceConversation;
+
+    private static readonly HashSet<string> EndPhrases = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "thanks", "thank you", "thanks a lot", "thank you very much", "no thanks", "no thank you", "that's all", "that is all",
+        "that's it", "that's all thanks", "that's all thank you", "that's it thanks", "never mind", "nevermind", "stop",
+        "goodbye", "bye", "done", "i'm done", "all set", "i'm all set", "nothing", "nope", "no", "we're done", "cancel",
+    };
+
+    private static bool IsEndPhrase(string said)
+    {
+        var s = new string(said.ToLowerInvariant().Where(c => char.IsLetter(c) || c == ' ' || c == '\'').ToArray()).Trim();
+        foreach (var prefix in new[] { "ok ", "okay ", "great ", "perfect ", "cool " }) if (s.StartsWith(prefix)) s = s[prefix.Length..].Trim();
+        s = s.Replace(" sidecar", "").Trim();
+        return EndPhrases.Contains(s);
     }
 
     private void OpenPanel()
@@ -128,6 +147,7 @@ public sealed partial class AssistantOverlay : UserControl
     private void ClosePanel()
     {
         CancelTurn();
+        _voiceConversation = false;
         // Let the agent wrap up: save a summary and any new facts, clear its working memory.
         if (_lines.Count > 0 && _agent is not null) _ = _agent.EndConversationAsync();
         Backdrop.Visibility = Visibility.Collapsed;
@@ -145,6 +165,7 @@ public sealed partial class AssistantOverlay : UserControl
     {
         // While listening, the button reads "Done": stop listening and send what was heard so far.
         if (_state == State.Listening) { _listenCts?.Cancel(); return; }
+        _voiceConversation = true;
         await ListenAndRespondAsync();
     }
 
@@ -155,18 +176,19 @@ public sealed partial class AssistantOverlay : UserControl
         if (e.Key == Windows.System.VirtualKey.Enter) { e.Handled = true; await SendTypedAsync(); }
     }
 
-    private void Stop_Click(object sender, RoutedEventArgs e) => CancelTurn();
+    private void Stop_Click(object sender, RoutedEventArgs e) { _voiceConversation = false; CancelTurn(); }
 
     private async Task SendTypedAsync()
     {
         var text = Input.Text.Trim();
         if (text.Length == 0 || _state is State.Starting or State.Thinking) return;
         Input.Text = "";
+        _voiceConversation = false;
         CancelTurn();
         await RespondAsync(text);
     }
 
-    private async Task ListenAndRespondAsync()
+    private async Task ListenAndRespondAsync(bool followUp = false)
     {
         if (!Ready()) return;
         CancelTurn();
@@ -174,19 +196,31 @@ public sealed partial class AssistantOverlay : UserControl
         try
         {
             SetState(State.Listening);
-            PartialText.Text = MicHint();
+            var hint = followUp ? "Go ahead\u2026 (or say \u201Cthat's all\u201D)" : MicHint();
+            PartialText.Text = hint;
             PartialText.Visibility = Visibility.Visible;
             using var listenCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
             _listenCts = listenCts;
             var heard = await _voice!.ListenOnceAsync(
-                partial => DispatcherQueue.TryEnqueue(() => PartialText.Text = partial), listenCts.Token);
-            if (heard.Length == 0 && PartialText.Text.StartsWith("Using ")) PartialText.Text = "";
+                partial => DispatcherQueue.TryEnqueue(() => PartialText.Text = partial), listenCts.Token,
+                followUp ? _voice.FollowUpTimeout : null);
             _listenCts = null;
             PartialText.Visibility = Visibility.Collapsed;
 
             if (cts.IsCancellationRequested) return;
-            if (heard.Length == 0) heard = PartialText.Text.Trim(); // "Done" tapped mid-sentence
-            if (heard.Length == 0) { SetState(State.Idle, "Didn't catch that. Tap Talk to try again."); return; }
+            if (heard.Length == 0)
+            {
+                _voiceConversation = false;
+                SetState(State.Idle, followUp ? "Tap Talk to continue." : "Didn't catch that. Tap Talk to try again.");
+                return;
+            }
+            if (followUp && IsEndPhrase(heard))
+            {
+                _voiceConversation = false;
+                AddLine(fromUser: true, heard);
+                SetState(State.Idle, "Okay. Tap Talk anytime.");
+                return;
+            }
             await RespondAsync(heard);
         }
         catch (Exception ex)
@@ -202,6 +236,7 @@ public sealed partial class AssistantOverlay : UserControl
         if (!Ready()) return;
         // Each reply gets its own cancel switch; a just-cancelled listen must not cancel this turn.
         var cts = _turnCts = new CancellationTokenSource();
+        var spoke = false;
         AddLine(fromUser: true, text);
         try
         {
@@ -218,6 +253,7 @@ public sealed partial class AssistantOverlay : UserControl
             SetState(State.Speaking);
             await _voice!.SpeakAsync(reply, cts.Token);
             SetState(State.Idle);
+            spoke = !cts.IsCancellationRequested;
         }
         catch (OperationCanceledException) { SetState(State.Idle); }
         catch (Exception ex) { SetState(State.Idle, ex.Message); }
@@ -226,6 +262,12 @@ public sealed partial class AssistantOverlay : UserControl
             _replyId = null;
             _replyDone = null;
             if (_turnCts == cts) { _turnCts = null; cts.Dispose(); }
+        }
+        // Voice conversation: reopen the mic for your answer or follow-up (after a beat, so it doesn't hear itself).
+        if (spoke && _voiceConversation && Panel.Visibility == Visibility.Visible)
+        {
+            await Task.Delay(350);
+            if (_voiceConversation && _state == State.Idle && Panel.Visibility == Visibility.Visible) await ListenAndRespondAsync(followUp: true);
         }
     }
 

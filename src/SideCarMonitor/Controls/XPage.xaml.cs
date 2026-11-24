@@ -312,7 +312,8 @@ public sealed partial class XPage : UserControl
     private async Task PlayAsync()
     {
         if (_feed is null) return;
-        if (!EpisodeReady || (_feed.PodcastHasNews && !(_player is not null && _playerEpisode == _feed.State.PodcastAt && _player.PlaybackSession.Position > TimeSpan.Zero)))
+        var midway = PlaybackMemory.Get($"x:{_feed.State.PodcastAt:o}") is not null; // partway through, even before a restart: finish it first
+        if (!EpisodeReady || (_feed.PodcastHasNews && !midway && !(_player is not null && _playerEpisode == _feed.State.PodcastAt && _player.PlaybackSession.Position > TimeSpan.Zero)))
         {
             _feed.State.PodcastStatus = "preparing"; RenderBriefingBar();
             var err = await Task.Run(() => _feed.PreparePodcastAsync());
@@ -324,6 +325,8 @@ public sealed partial class XPage : UserControl
             _player = new Windows.Media.Playback.MediaPlayer { Source = Windows.Media.Core.MediaSource.CreateFromUri(new Uri(_feed.PodcastPath)) };
             _player.MediaEnded += (_, _) => DispatcherQueue.TryEnqueue(RenderBriefingBar);
             _playerEpisode = _feed.State.PodcastAt;
+            PlaybackMemory.Track(_player, $"x:{_feed.State.PodcastAt:o}");
+            if (PlaybackMemory.Get($"x:{_feed.State.PodcastAt:o}") is { } at) _note = $"Picking up where you left off ({(int)at.TotalMinutes}:{at.Seconds:00})";
         }
         _player.Play();
         _clock ??= new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
