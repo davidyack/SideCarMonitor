@@ -262,10 +262,23 @@ public sealed class VoiceService : IDisposable
     public Task StopSpeakingAsync() => _synth?.StopSpeakingAsync() ?? Task.CompletedTask;
 
     /// <summary>Strips simple Markdown so list markers and asterisks aren't read aloud.</summary>
-    private static string ForSpeech(string text)
+    /// <summary>
+    /// Text as it should be heard: no markdown, and never a URL read out loud. Markdown links keep their words
+    /// ("[United search](https://...)" -> "United search"); bare links are dropped ("...at https://x.com/a" -> "...");
+    /// the links stay in the on-screen text.
+    /// </summary>
+    internal static string ForSpeech(string text)
     {
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"\[([^\]]+)\]\((?:https?://|www\.)[^)\s]+\)", "$1");   // [words](url) -> words
+        const string Link = "\u0001";                                                                                   // placeholder for a removed link
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"<?(?:https?://|www\.)[^\s<>()]+?>?(?=[.,;:!?)]?(?:\s|$))", Link); // bare URLs
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"\b[\w-]+(?:\.[\w-]+)*\.(?:com|org|net|io|ai|dev|co)/\S+?(?=[.,;:!?)]?(?:\s|$))", Link); // domain/path
+        // "Link: <url>" -> "link on screen"; any other link -> "the link on screen"; two in a row read once.
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"(?i)\b(?:link|url|book(?:ing)? link)\s*:\s*\u0001", "link on screen");
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"\u0001(?:\s*(?:and|or|,)\s*\u0001)+", Link);
+        text = text.Replace(Link, "the link on screen");
         var lines = text.Split('\n').Select(l => l.Trim().TrimStart('-', '*', '#', ' ').Replace("**", "").Replace("`", ""));
-        return string.Join(". ", lines.Where(l => l.Length > 0)).Replace("..", ".");
+        return System.Text.RegularExpressions.Regex.Replace(string.Join(". ", lines.Where(l => l.Length > 0)).Replace("..", "."), @"\s{2,}", " ");
     }
 
     public void Dispose() => _synth?.Dispose();
