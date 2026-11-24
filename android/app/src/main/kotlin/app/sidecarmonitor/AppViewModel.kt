@@ -284,36 +284,86 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(assistantOpen = false, assistant = AssistantState.Idle) }
     }
 
-    /** Listen, then answer. */
+    /** Started by voice: after each spoken reply the mic reopens until you go quiet, say "that's all", or tap Stop. */
+    private var voiceConversation = false
+
+    private val endPhrases = setOf(
+        "thanks", "thank you", "thanks a lot", "thank you very much", "no thanks", "no thank you", "that's all", "that is all",
+        "that's it", "that's all thanks", "that's all thank you", "that's it thanks", "never mind", "nevermind", "stop",
+        "goodbye", "bye", "done", "i'm done", "all set", "i'm all set", "nothing", "nope", "no", "we're done", "cancel",
+    )
+
+    private fun isEndPhrase(said: String): Boolean {
+        var s = said.lowercase().filter { it.isLetter() || it == ' ' || it == '\'' || it == '’' }.replace('’', '\'').trim()
+        for (prefix in listOf("ok ", "okay ", "great ", "perfect ", "cool ")) if (s.startsWith(prefix)) s = s.removePrefix(prefix).trim()
+        return s.replace(" sidecar", "").trim() in endPhrases
+    }
+
+    /** Listen, then answer. Tapping Talk while listening means "Done": send what was heard. */
     fun talk() {
         if (_state.value.assistant == AssistantState.Listening) { recorder.stop(); return } // "Done"
-        stopTurn()
+        voiceConversation = true
+        listenAndRespond(followUp = false)
+    }
+
+    private fun listenAndRespond(followUp: Boolean) {
+        stopTurn(keepConversation = true)
         turnJob = viewModelScope.launch {
             val c = client ?: return@launch
             try {
-                setAssistant(AssistantState.Listening, "Listening…")
-                val wav = recorder.record { level -> _state.update { it.copy(micLevel = level) } }
+                setAssistant(AssistantState.Listening, if (followUp) "Go ahead… (or say “that's all”)" else "Listening…")
+                val wav = recorder.record(onLevel = { level -> _state.update { it.copy(micLevel = level) } }, noSpeechMs = if (followUp) 8_000 else 8_000)
                 _state.update { it.copy(micLevel = 0f) }
-                if (wav.isEmpty()) { setAssistant(AssistantState.Idle, "Didn't catch that. Tap Talk to try again."); return@launch }
+                if (wav.isEmpty()) {
+                    voiceConversation = false
+                    setAssistant(AssistantState.Idle, if (followUp) "Tap Talk to continue." else "Didn't catch that. Tap Talk to try again.")
+                    return@launch
+                }
                 setAssistant(AssistantState.Thinking, "Thinking…")
                 val heard = c.listen(wav)
-                if (heard.isBlank()) { setAssistant(AssistantState.Idle, "Didn't catch that. Tap Talk to try again."); return@launch }
+                if (heard.isBlank()) { voiceConversation = false; setAssistant(AssistantState.Idle, "Didn't catch that. Tap Talk to try again."); return@launch }
+                if (followUp && isEndPhrase(heard)) {
+                    voiceConversation = false
+                    addLine(ChatLine(true, heard))
+                    setAssistant(AssistantState.Idle, "Okay. Tap Talk anytime.")
+                    return@launch
+                }
                 respond(heard)
+                // Hands-free: reopen the mic for your answer or follow-up (after a beat, so it doesn't hear itself).
+                if (voiceConversation && _state.value.assistantOpen) {
+                    kotlinx.coroutines.delay(350)
+                    if (voiceConversation && _state.value.assistantOpen) listenAndRespond(followUp = true)
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
+                voiceConversation = false
                 setAssistant(AssistantState.Idle, e.message ?: "Something went wrong")
             }
         }
     }
 
+    /** Dictation for text fields (notes, answers): record, transcribe on the kiosk, return the words ("" if none). */
+    suspend fun dictate(onLevel: (Float) -> Unit = {}): String {
+        val c = client ?: return ""
+        val wav = recorder.record(onLevel = onLevel)
+        if (wav.isEmpty()) return ""
+        return runCatching { c.listen(wav) }.getOrDefault("")
+    }
+
+    fun stopDictation() = recorder.stop()
+
     fun sendText(text: String) {
         if (text.isBlank()) return
+        voiceConversation = false
         stopTurn()
         turnJob = viewModelScope.launch {
             try { respond(text.trim()) } catch (e: Exception) { setAssistant(AssistantState.Idle, e.message ?: "Something went wrong") }
         }
     }
 
-    fun stopTurn() {
+    fun stopTurn(keepConversation: Boolean = false) {
+        if (!keepConversation) voiceConversation = false
         recorder.stop()
         player.stop()
         turnJob?.cancel()

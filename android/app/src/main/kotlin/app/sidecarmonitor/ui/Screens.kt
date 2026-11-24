@@ -89,13 +89,35 @@ fun HomeScreen(state: UiState, vm: app.sidecarmonitor.AppViewModel, onOpen: (Scr
     val cams = state.status?.cameras.orEmpty()
     val activity = state.status?.activity.orEmpty()
     val activeNow = activity.firstOrNull { it.active }
+    // Next meeting (both calendars) for the clock tile: amber from 15 minutes before.
+    var meetings by remember { mutableStateOf<List<app.sidecarmonitor.data.MeetingInfo>>(emptyList()) }
+    LaunchedEffect(state.connected) {
+        while (true) {
+            runCatching { vm.kiosk?.meetings() }.getOrNull()?.let { meetings = it.meetings }
+            delay(120_000)
+        }
+    }
+    val nowInstant = java.time.OffsetDateTime.now()
+    val next = meetings.mapNotNull { m -> runCatching { Triple(m, java.time.OffsetDateTime.parse(m.start), java.time.OffsetDateTime.parse(m.end)) }.getOrNull() }
+        .filter { (m, _, end) -> end.isAfter(nowInstant) && !m.subject.lowercase().startsWith("hold") }
+        .minByOrNull { it.second }
+    val untilMin = next?.let { java.time.Duration.between(nowInstant, it.second).toMinutes() }
+    val meetingSoon = untilMin != null && untilMin <= 15 && untilMin > -5
 
     Column(Modifier.fillMaxSize().verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         BriefCard(vm)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Tile(SideCarColors.Panel, Modifier.weight(1f).aspectRatio(1f), onClick = { onOpen(Screen.Day) }) {
+            Tile(if (meetingSoon) SideCarColors.Amber else SideCarColors.Panel, Modifier.weight(1f).aspectRatio(1f), onClick = { onOpen(Screen.Day) }) {
                 Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
                     Text(now.format(DateTimeFormatter.ofPattern("h:mm")), fontSize = 44.sp, fontWeight = FontWeight.Light)
+                    if (next != null && untilMin != null) Column {
+                        Text(when {
+                            untilMin <= 0 -> "Now \u00B7 ${next.first.calendar}"
+                            untilMin <= 60 -> "In $untilMin min \u00B7 ${next.first.calendar}"
+                            else -> "${next.second.atZoneSameInstant(java.time.ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("h:mm a"))} \u00B7 ${next.first.calendar}"
+                        }, fontSize = 12.sp, color = if (meetingSoon) Color.White else SideCarColors.Muted)
+                        Text(next.first.subject, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
                     Text(
                         if (state.connected) "Kiosk ${state.connectionLabel}" else (state.lastError ?: "Connecting…"),
                         color = if (state.connected) SideCarColors.Ok else SideCarColors.Muted, fontSize = 13.sp,
@@ -209,11 +231,13 @@ fun CamerasScreen(state: UiState, snapshot: suspend (Int) -> ByteArray?, onBack:
 }
 
 @Composable
-fun WeatherScreen(state: UiState, onBack: () -> Unit) {
+fun WeatherScreen(state: UiState, vm: app.sidecarmonitor.AppViewModel, onBack: () -> Unit) {
     val w = state.status?.weather
+    var forecast by remember { mutableStateOf<app.sidecarmonitor.data.ForecastInfo?>(null) }
+    LaunchedEffect(Unit) { forecast = runCatching { vm.kiosk?.forecast() }.getOrNull() }
     Column(Modifier.fillMaxSize()) {
         PageHeader("Weather", onBack)
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Tile(SideCarColors.Amber, Modifier.fillMaxWidth().height(170.dp), onClick = null) {
                 Column {
                     Text(w.str("temperature") ?: "--", fontSize = 64.sp, fontWeight = FontWeight.Light)
@@ -227,6 +251,22 @@ fun WeatherScreen(state: UiState, onBack: () -> Unit) {
             WeatherRow("Pressure", w.str("pressure"), null)
             WeatherRow("Lightning today", w.str("lightningStrikesToday"), w.str("lastLightning"))
             Text("Tempest reading at ${w.str("observedAt") ?: "--"}", color = SideCarColors.Muted, fontSize = 13.sp)
+            forecast?.let { f ->
+                if (f.error != null) Text(f.error, color = SideCarColors.Muted, fontSize = 13.sp)
+                if (f.highlights.isNotEmpty()) Column(Modifier.fillMaxWidth().background(SideCarColors.Panel).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Coming up", color = SideCarColors.Muted, fontSize = 14.sp)
+                    f.highlights.forEach { Text(it, fontSize = 15.sp) }
+                }
+                if (f.hours.isNotEmpty()) Column(Modifier.fillMaxWidth().background(SideCarColors.Panel).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Next hours", color = SideCarColors.Muted, fontSize = 14.sp)
+                    f.hours.forEach { Text(it, fontSize = 13.sp) }
+                }
+                if (f.days.isNotEmpty()) Column(Modifier.fillMaxWidth().background(SideCarColors.Panel).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Next days", color = SideCarColors.Muted, fontSize = 14.sp)
+                    f.days.forEach { Text(it, fontSize = 15.sp) }
+                }
+            }
+            Spacer(Modifier.height(96.dp))
         }
     }
 }

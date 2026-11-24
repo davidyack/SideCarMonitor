@@ -161,6 +161,13 @@ fun BriefCard(vm: AppViewModel) {
         }
     }
     DisposableEffect(Unit) { onDispose { player?.release() } }
+    val memoryKey = "brief:${brief?.at}"
+    LaunchedEffect(player) {
+        while (player != null) {
+            kotlinx.coroutines.delay(3_000)
+            player?.takeIf { runCatching { it.isPlaying }.getOrDefault(false) }?.let { app.sidecarmonitor.data.PlaybackMemory.save(context, memoryKey, it.currentPosition) }
+        }
+    }
     val b = brief ?: return
     if (!b.available || b.dismissed) return
     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp).background(SideCarColors.Panel).padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -168,19 +175,21 @@ fun BriefCard(vm: AppViewModel) {
         Text(b.text, fontSize = 14.sp, maxLines = if (expanded) 40 else 4, modifier = Modifier.clickable { expanded = !expanded })
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Btn(if (player?.isPlaying == true) "⏹ Stop" else "▶ Play", SideCarColors.Cobalt) {
-                player?.let { it.stop(); it.release(); player = null; status = ""; return@Btn }
+                player?.let { app.sidecarmonitor.data.PlaybackMemory.save(context, memoryKey, it.currentPosition); it.stop(); it.release(); player = null; status = ""; return@Btn }
                 scope.launch {
                     status = "Preparing audio…"
                     val bytes = runCatching { vm.kiosk?.briefAudio() }.getOrNull() ?: run { status = "Couldn't get the audio"; return@launch }
                     val f = java.io.File(context.cacheDir, "brief.wav").apply { writeBytes(bytes) }
                     player = android.media.MediaPlayer().apply {
                         setAudioAttributes(android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_MEDIA).build())
-                        setDataSource(f.absolutePath); prepare(); start(); setOnCompletionListener { status = "" }
+                        setDataSource(f.absolutePath); prepare()
+                        val from = app.sidecarmonitor.data.PlaybackMemory.resume(context, memoryKey, this)
+                        status = if (from > 0) "Picking up at ${app.sidecarmonitor.data.PlaybackMemory.format(from)}" else ""
+                        start(); setOnCompletionListener { status = ""; app.sidecarmonitor.data.PlaybackMemory.forget(context, memoryKey) }
                     }
-                    status = ""
                 }
             }
-            Btn("Dismiss", SideCarColors.Amber) { player?.release(); player = null; scope.launch { vm.kiosk?.briefDismiss(); brief = brief?.copy(dismissed = true) } }
+            Btn("Dismiss", SideCarColors.Amber) { player?.release(); player = null; app.sidecarmonitor.data.PlaybackMemory.forget(context, memoryKey); scope.launch { vm.kiosk?.briefDismiss(); brief = brief?.copy(dismissed = true) } }
             Spacer(Modifier.width(4.dp))
             if (status.isNotBlank()) Text(status, color = SideCarColors.Muted, fontSize = 13.sp)
         }

@@ -107,6 +107,8 @@ class ReminderWorker(context: Context, params: WorkerParameters) : CoroutineWork
         val nm = NotificationManagerCompat.from(applicationContext)
         (shown - due.map { it.id }.toSet()).forEach { nm.cancel(Reminders.notificationId(it)) }
         prefs.edit().putStringSet("shown", due.map { it.id }.toSet()).apply()
+        // Meeting heads-ups (prep ~30 min before, Join at 5) are scheduled from the same check.
+        runCatching { MeetingAlerts.schedule(applicationContext, c) }
         return Result.success()
     }
 }

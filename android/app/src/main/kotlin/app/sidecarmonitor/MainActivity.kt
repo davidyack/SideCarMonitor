@@ -100,14 +100,14 @@ class MainActivity : ComponentActivity() {
                         when (screen) {
                             Screen.Home -> HomeScreen(state, vm, onOpen = { screen = it }, onTalk = ::talk)
                             Screen.Cameras -> CamerasScreen(state, vm::snapshot) { screen = Screen.Home }
-                            Screen.Weather -> WeatherScreen(state) { screen = Screen.Home }
+                            Screen.Weather -> WeatherScreen(state, vm) { screen = Screen.Home }
                             Screen.Activity -> ActivityScreen(state, vm::snapshot, vm::eventSnapshot, vm::clearActivity) { screen = Screen.Home }
                             Screen.Tasks ->
-                                if (state.openTask != null) TaskDetailScreen(state, vm::taskAction) { vm.closeTask() }
+                                if (state.openTask != null) TaskDetailScreen(state, vm::taskAction, dictate = { vm.dictate() }, stopDictate = vm::stopDictation) { vm.closeTask() }
                                 else TasksScreen(state, onOpen = vm::openTask, onAdd = vm::addTask,
                                     onWeek = { vm.loadWeek(0); screen = Screen.Week }) { screen = Screen.Home }
                             Screen.Week ->
-                                if (state.openTask != null) TaskDetailScreen(state, vm::taskAction) { vm.closeTask(); vm.loadWeek() }
+                                if (state.openTask != null) TaskDetailScreen(state, vm::taskAction, dictate = { vm.dictate() }, stopDictate = vm::stopDictation) { vm.closeTask(); vm.loadWeek() }
                                 else WeekScreen(state.week, state.taskMessage, onMove = vm::moveTaskToDay, onToggleDone = vm::toggleDone,
                                     onOpen = vm::openTask, onWeek = vm::shiftWeek) { screen = Screen.Tasks }
                             Screen.House -> HouseScreen(vm) { screen = Screen.Home }

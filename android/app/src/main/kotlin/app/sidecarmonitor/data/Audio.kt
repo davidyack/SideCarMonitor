@@ -26,7 +26,11 @@ class VoiceRecorder {
     fun stop() { stopRequested = true }
 
     @SuppressLint("MissingPermission") // the caller checks RECORD_AUDIO first
-    suspend fun record(onLevel: (Float) -> Unit = {}): ByteArray = withContext(Dispatchers.IO) {
+    /**
+     * Records until you've been quiet for [endSilenceMs] after speaking (short pauses are kept), nothing is heard
+     * within [noSpeechMs], [maxMs] passes, or [stop] is called. Returns "" (empty) if you never spoke.
+     */
+    suspend fun record(onLevel: (Float) -> Unit = {}, noSpeechMs: Int = 8_000, endSilenceMs: Int = 2_500, maxMs: Int = 90_000): ByteArray = withContext(Dispatchers.IO) {
         stopRequested = false
         val rate = 16_000
         val min = AudioRecord.getMinBufferSize(rate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
@@ -39,7 +43,7 @@ class VoiceRecorder {
         var totalMs = 0
         rec.startRecording()
         try {
-            while (!stopRequested && totalMs < 20_000) {
+            while (!stopRequested && totalMs < maxMs) {
                 val n = rec.read(buf, 0, buf.size)
                 if (n <= 0) continue
                 val bytes = ByteBuffer.allocate(n * 2).order(ByteOrder.LITTLE_ENDIAN)
@@ -50,9 +54,8 @@ class VoiceRecorder {
                 onLevel((rms / 3000f).coerceIn(0f, 1f))
                 totalMs += 100
                 if (rms > 900) { heardSpeech = true; quietMs = 0 } else quietMs += 100
-                // Stop ~1.2 s after you finish talking, or after 6 s if you never start.
-                if (heardSpeech && quietMs >= 1200) break
-                if (!heardSpeech && totalMs >= 6000) break
+                if (heardSpeech && quietMs >= endSilenceMs) break
+                if (!heardSpeech && totalMs >= noSpeechMs) break
             }
         } finally {
             rec.stop()

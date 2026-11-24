@@ -89,10 +89,23 @@ fun XScreen(vm: AppViewModel, onBack: () -> Unit) {
             Chip("Signal ${i?.signal?.size ?: 0}", tab == "signal") { tab = "signal" }
             Chip("Noise ${i?.noise?.size ?: 0}", tab == "noise") { tab = "noise" }
             Chip("Saved ${i?.saved?.size ?: 0}", tab == "saved") { tab = "saved" }
+            Chip("Sources", tab == "sources") { tab = "sources" }
             Spacer(Modifier.weight(1f))
             Chip("↻ Update", false, SideCarColors.Cobalt) { scope.launch { vm.kiosk?.xUpdate(); note = "Updating on the kiosk…"; delay(2000); reload() } }
         }
         Text(note, Modifier.padding(horizontal = 16.dp, vertical = 6.dp), color = SideCarColors.Muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        info?.health?.takeIf { it.isNotBlank() }?.let {
+            Text(it, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 6.dp), color = Color(0xFF6CB4FF), fontSize = 13.sp)
+        }
+        if (tab == "sources") {
+            LazyColumn(Modifier.padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                item { Text("Accounts that fill your timeline without signal. Unfollow asks you to confirm.", fontSize = 13.sp, color = SideCarColors.Muted) }
+                items(info?.noisy.orEmpty(), key = { it.id }) { a -> NoisyRow(vm, a) { scope.launch { reload() } } }
+                if (info?.noisy.isNullOrEmpty()) item { Text("No noisy accounts yet.", color = SideCarColors.Muted) }
+                item { Spacer(Modifier.height(96.dp)) }
+            }
+            return@Column
+        }
         val posts = when (tab) { "noise" -> info?.noise; "saved" -> info?.saved; else -> info?.signal }.orEmpty()
         LazyColumn(Modifier.padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(posts, key = { it.id }) { p -> XCard(vm, p, onAnalyze = { analysisFor = p }) { scope.launch { reload() } } }
@@ -150,6 +163,28 @@ private fun XCard(vm: AppViewModel, p: XPost, onAnalyze: () -> Unit, onChanged: 
     }
 }
 
+/** One noisy account: how much of your timeline it takes, with Unfollow (confirm first). */
+@Composable
+private fun NoisyRow(vm: AppViewModel, a: app.sidecarmonitor.data.XAccountInfo, onChanged: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var confirm by remember { mutableStateOf(false) }
+    var status by remember { mutableStateOf("") }
+    Row(Modifier.fillMaxWidth().background(SideCarColors.Panel).padding(12.dp), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.weight(1f)) {
+            Text("${a.name}  @${a.username}", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(status.ifBlank { "${a.noise} of ${a.seen} posts were noise" }, fontSize = 13.sp, color = if (status.isBlank()) SideCarColors.Alert else SideCarColors.Muted)
+        }
+        if (confirm) {
+            Text("Yes, unfollow", Modifier.background(SideCarColors.Alert).clickable {
+                confirm = false
+                scope.launch { status = vm.kiosk?.xUnfollow(a.id)?.let { "Couldn't: $it" } ?: "Unfollowed"; onChanged() }
+            }.padding(12.dp), fontSize = 14.sp)
+            Text("Cancel", Modifier.background(SideCarColors.Steel).clickable { confirm = false }.padding(12.dp), fontSize = 14.sp)
+        } else if (status.isBlank()) Text("Unfollow", Modifier.background(SideCarColors.Steel).clickable { confirm = true }.padding(12.dp), fontSize = 14.sp)
+    }
+}
+
 /** Post + replies analysis (about $0.25 when not done yet), as labeled lines. */
 @Composable
 private fun AnalysisView(vm: AppViewModel, p: XPost, onBack: () -> Unit) {
@@ -200,7 +235,11 @@ fun BriefingBarFor(
     var listening by remember { mutableStateOf(false) }
     var waiting by remember { mutableStateOf(false) }
     DisposableEffect(Unit) { onDispose { player?.release(); player = null } }
-    LaunchedEffect(playing) { while (playing) { position = player?.currentPosition ?: 0; delay(500) } }
+    val memoryKey = "x:${podcast.at}"
+    LaunchedEffect(playing) {
+        var n = 0
+        while (playing) { position = player?.currentPosition ?: 0; if (++n % 6 == 0) app.sidecarmonitor.data.PlaybackMemory.save(context, memoryKey, position); delay(500) }
+    }
     val ready = podcast.status == "ready" && !podcast.cleared
 
     suspend fun load(): android.media.MediaPlayer? {
@@ -212,9 +251,11 @@ fun BriefingBarFor(
         val mp = android.media.MediaPlayer().apply {
             setAudioAttributes(android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_MEDIA)
                 .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH).build())
-            setDataSource(file.absolutePath); prepare(); setOnCompletionListener { playing = false }
+            setDataSource(file.absolutePath); prepare(); setOnCompletionListener { playing = false; app.sidecarmonitor.data.PlaybackMemory.forget(context, memoryKey) }
         }
         player = mp; loadedFor = podcast.at; duration = mp.duration; note = ""
+        val from = app.sidecarmonitor.data.PlaybackMemory.resume(context, memoryKey, mp)
+        if (from > 0) { position = from; note = "Picking up where you left off (${app.sidecarmonitor.data.PlaybackMemory.format(from)})" }
         return mp
     }
     LaunchedEffect(podcast.status, podcast.at) { if (waiting && ready) { waiting = false; load()?.let { it.start(); playing = true } } }
@@ -231,7 +272,9 @@ fun BriefingBarFor(
                 podcast.status.startsWith("failed") -> Big("Retry briefing", SideCarColors.Alert, Modifier.fillMaxWidth()) { scope.launch { waiting = true; prepare(); delay(1500); onChanged() } }
                 else -> Big("▶  Play briefing", SideCarColors.Cobalt, Modifier.fillMaxWidth()) {
                     scope.launch {
-                        if (ready && !(podcast.hasNews)) load()?.let { it.start(); playing = true }
+                        // An episode you were partway through is finished before a new one is made.
+                        val midway = context.getSharedPreferences("playback", android.content.Context.MODE_PRIVATE).contains(memoryKey)
+                        if (ready && (!podcast.hasNews || midway)) load()?.let { it.start(); playing = true }
                         else if (podcast.candidates > 0) { waiting = true; prepare(); delay(1500); onChanged() }
                         else note = "Nothing new to brief"
                     }
@@ -240,7 +283,7 @@ fun BriefingBarFor(
         } else {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Big(if (playing) "⏸ Pause" else "▶ Play", SideCarColors.Cobalt, Modifier.weight(1f)) {
-                    player?.let { if (playing) { it.pause(); playing = false } else { it.start(); playing = true } }
+                    player?.let { if (playing) { it.pause(); playing = false; app.sidecarmonitor.data.PlaybackMemory.save(context, memoryKey, it.currentPosition) } else { it.start(); playing = true } }
                 }
                 Big(if (listening) "Listening…" else "🏷 Tag", SideCarColors.Amber, Modifier.weight(1.2f)) {
                     if (listening) return@Big
@@ -253,7 +296,7 @@ fun BriefingBarFor(
                     }
                 }
                 Big("✓ Done", SideCarColors.Emerald, Modifier.weight(1f)) {
-                    player?.pause(); playing = false; player?.release(); player = null
+                    player?.pause(); playing = false; player?.release(); player = null; app.sidecarmonitor.data.PlaybackMemory.forget(context, memoryKey)
                     scope.launch { clear(); note = "Cleared from the feed"; onChanged() }
                 }
             }

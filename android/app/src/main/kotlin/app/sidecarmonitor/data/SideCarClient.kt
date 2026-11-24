@@ -93,6 +93,7 @@ data class LinkedInInfo(
     val lastRun: String? = null, val lastRunResult: String = "", val digest: String = "",
     val signal: List<LiPost> = emptyList(), val noise: List<LiPost> = emptyList(),
     val podcast: LiPodcast = LiPodcast(),
+    val health: String = "", val sources: List<LiSource> = emptyList(),
 )
 
 @Serializable
@@ -125,7 +126,26 @@ data class XInfo(
     val available: Boolean = false, val busy: Boolean = false, val lastUpdate: String? = null, val lastResult: String = "", val postsRead: Int = 0,
     val signal: List<XPost> = emptyList(), val noise: List<XPost> = emptyList(), val saved: List<XPost> = emptyList(),
     val listCandidates: List<XAccountInfo> = emptyList(), val noisy: List<XAccountInfo> = emptyList(),
-    val podcast: LiPodcast = LiPodcast(),
+    val podcast: LiPodcast = LiPodcast(), val health: String = "",
+)
+
+@Serializable
+data class LiSource(val author: String = "", val headline: String = "", val posts: Int = 0, val signal: Int = 0, val ads: Int = 0, val suppressed: Boolean = false)
+
+@Serializable
+data class MeetingInfo(
+    val key: String = "", val calendar: String = "", val subject: String = "", val start: String = "", val end: String = "",
+    val location: String = "", val organizer: String = "", val joinUrl: String = "", val showAs: String = "", val response: String = "",
+    val worthPrep: Boolean = false, val prep: String = "",
+)
+
+@Serializable
+data class MeetingsInfo(val available: Boolean = false, val leadMinutes: Int = 30, val meetings: List<MeetingInfo> = emptyList())
+
+@Serializable
+data class ForecastInfo(
+    val updated: String = "", val highlights: List<String> = emptyList(), val hours: List<String> = emptyList(),
+    val days: List<String> = emptyList(), val error: String? = null,
 )
 
 @Serializable
@@ -260,6 +280,12 @@ class SideCarClient(private val pairing: Pairing) {
             json.parseToJsonElement(it.body.string()).jsonObject["reply"]?.jsonPrimitive?.content ?: "Saved"
         }
     }
+
+    // ---- Meetings, forecast, LinkedIn suppress ----
+    suspend fun meetings(): MeetingsInfo = withContext(Dispatchers.IO) { call(Request.Builder().url("$base/api/meetings").build()).use { json.decodeFromString(it.body.string()) } }
+    suspend fun forecast(): ForecastInfo = withContext(Dispatchers.IO) { call(Request.Builder().url("$base/api/weather/forecast").build()).use { json.decodeFromString(it.body.string()) } }
+    suspend fun linkedInSuppress(author: String, suppressed: Boolean) =
+        postJson("/api/linkedin/suppress", buildJsonObject { put("author", author); put("suppressed", suppressed) })
 
     // ---- Calendar ----
     suspend fun calendarDay(date: String): CalDay = withContext(Dispatchers.IO) {

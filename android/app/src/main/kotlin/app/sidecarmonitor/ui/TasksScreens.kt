@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -136,7 +137,8 @@ private fun TaskRowView(t: TaskRow, onClick: () -> Unit) {
 
 /** One task: decisions, question, deliverable (with Accept/Dismiss), switches, notes and history with Undo. */
 @Composable
-fun TaskDetailScreen(state: UiState, onAction: (String, Map<String, Any?>) -> Unit, onBack: () -> Unit) {
+fun TaskDetailScreen(state: UiState, onAction: (String, Map<String, Any?>) -> Unit,
+                     dictate: (suspend () -> String)? = null, stopDictate: () -> Unit = {}, onBack: () -> Unit) {
     val d = state.openTask ?: return
     val t = d.row
     var note by remember(t.id) { mutableStateOf("") }
@@ -176,7 +178,10 @@ fun TaskDetailScreen(state: UiState, onAction: (String, Map<String, Any?>) -> Un
             d.question?.let { q ->
                 Banner("Assistant asks: $q", SideCarColors.Amber)
                 OutlinedTextField(answer, { answer = it }, Modifier.fillMaxWidth(), placeholder = { Text("Your answer") })
-                TaskButton("Send answer", SideCarColors.Cobalt) { onAction("note", mapOf("text" to answer)); answer = "" }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    dictate?.let { DictateButton(it, stopDictate) { said -> answer = (answer + " " + said).trim() } }
+                    TaskButton("Send answer", SideCarColors.Cobalt) { onAction("note", mapOf("text" to answer)); answer = "" }
+                }
             }
 
             SwitchRow("On Today", t.pinned) { onAction(if (it) "pin" else "unpin", emptyMap()) }
@@ -208,7 +213,10 @@ fun TaskDetailScreen(state: UiState, onAction: (String, Map<String, Any?>) -> Un
             // Notes and activity
             Text("Notes and activity", color = SideCarColors.Muted, fontSize = 14.sp)
             OutlinedTextField(note, { note = it }, Modifier.fillMaxWidth(), placeholder = { Text("Add a note") })
-            TaskButton("Add note", SideCarColors.Panel) { onAction("note", mapOf("text" to note)); note = "" }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                dictate?.let { DictateButton(it, stopDictate) { said -> note = (note + " " + said).trim() } }
+                TaskButton("Add note", SideCarColors.Panel) { onAction("note", mapOf("text" to note)); note = "" }
+            }
             for (h in d.history) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     val who = when (h.author) { "User" -> "You"; "Assistant" -> "Assistant"; else -> "SideCar" }
@@ -222,6 +230,22 @@ fun TaskDetailScreen(state: UiState, onAction: (String, Map<String, Any?>) -> Un
                 }
             }
             Spacer(Modifier.height(96.dp)) // room above the mic button
+        }
+    }
+}
+
+/** Speak instead of typing: records until you pause, transcribes on the kiosk, adds the words to the field. */
+@Composable
+private fun DictateButton(dictate: suspend () -> String, stop: () -> Unit, onText: (String) -> Unit) {
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var listening by remember { mutableStateOf(false) }
+    TaskButton(if (listening) "Listening\u2026 tap when done" else "\uD83C\uDF99 Speak", if (listening) SideCarColors.Alert else SideCarColors.Mauve) {
+        if (listening) { stop(); return@TaskButton }
+        listening = true
+        scope.launch {
+            val said = runCatching { dictate() }.getOrDefault("")
+            listening = false
+            if (said.isNotBlank()) onText(said)
         }
     }
 }

@@ -79,11 +79,39 @@ fun LinkedInScreen(vm: AppViewModel, onBack: () -> Unit) {
             val i = info
             TabChip("Signal ${i?.signal?.size ?: 0}", tab == "signal") { tab = "signal" }
             TabChip("Noise ${i?.noise?.size ?: 0}", tab == "noise") { tab = "noise" }
+            TabChip("Sources ${i?.sources?.count { !it.suppressed } ?: 0}", tab == "sources") { tab = "sources" }
             Spacer(Modifier.weight(1f))
             TabChip("Run now", false, LinkedInBlue) { scope.launch { vm.linkedInRun(); delay(1500); reload() } }
         }
         Text(note, Modifier.padding(horizontal = 16.dp, vertical = 6.dp), color = SideCarColors.Muted, fontSize = 13.sp,
             maxLines = 1, overflow = TextOverflow.Ellipsis)
+        info?.health?.takeIf { it.isNotBlank() }?.let {
+            Text(it, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 6.dp), color = Color(0xFF6CB4FF), fontSize = 13.sp)
+        }
+        if (tab == "sources") {
+            LazyColumn(Modifier.padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                item {
+                    Text("People whose posts are mostly noise (last 30 days). Suppressing someone keeps them out of Signal and every " +
+                        "briefing; their posts still show under Noise.", fontSize = 13.sp, color = SideCarColors.Muted)
+                }
+                items(info?.sources.orEmpty(), key = { it.author }) { s ->
+                    Row(Modifier.fillMaxWidth().background(SideCarColors.Panel).padding(12.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(s.author + if (s.suppressed) "  \u00B7  suppressed" else "", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (s.headline.isNotBlank()) Text(s.headline, fontSize = 12.sp, color = SideCarColors.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(if (s.posts == 0) "No posts lately" else "${s.signal} of ${s.posts} posts were signal" + if (s.ads > 0) " \u00B7 ${s.ads} ads" else "",
+                                fontSize = 13.sp, color = if (s.signal == 0) SideCarColors.Alert else Color(0xFF6CB4FF))
+                        }
+                        ActionChip(if (s.suppressed) "Unsuppress" else "Suppress", if (s.suppressed) SideCarColors.Emerald else SideCarColors.Alert) {
+                            scope.launch { vm.kiosk?.linkedInSuppress(s.author, !s.suppressed); reload() }
+                        }
+                    }
+                }
+                if (info?.sources.isNullOrEmpty()) item { Text("No noisy sources yet.", color = SideCarColors.Muted) }
+                item { Spacer(Modifier.height(96.dp)) }
+            }
+            return@Column
+        }
         val posts = if (tab == "signal") info?.signal.orEmpty() else info?.noise.orEmpty()
         LazyColumn(Modifier.padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             val digest = info?.digest.orEmpty()
@@ -96,7 +124,9 @@ fun LinkedInScreen(vm: AppViewModel, onBack: () -> Unit) {
             items(posts, key = { it.id }) { p ->
                 PostCard(p,
                     onLabel = { scope.launch { vm.linkedInLabel(p.id, !p.signal); reload() } },
-                    onProfile = if (p.authorUrl.isNotBlank()) ({ person = p.authorUrl }) else null)
+                    onProfile = if (p.authorUrl.isNotBlank()) ({ person = p.authorUrl }) else null,
+                    onSuppress = if (tab == "noise" && !p.promoted && p.author.isNotBlank() && info?.sources?.any { it.author == p.author && it.suppressed } != true)
+                        ({ scope.launch { vm.kiosk?.linkedInSuppress(p.author, true); reload() } }) else null)
             }
             if (posts.isEmpty()) item { Text(if (tab == "signal") "Nothing here yet." else "No noise.", color = SideCarColors.Muted) }
             item { Spacer(Modifier.height(96.dp)) } // room for the mic button
@@ -110,7 +140,7 @@ private fun TabChip(text: String, selected: Boolean, color: Color = SideCarColor
         .clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 10.dp), fontSize = 15.sp)
 
 @Composable
-private fun PostCard(p: LiPost, onLabel: (() -> Unit)?, onProfile: (() -> Unit)?, compact: Boolean = false) {
+private fun PostCard(p: LiPost, onLabel: (() -> Unit)?, onProfile: (() -> Unit)?, compact: Boolean = false, onSuppress: (() -> Unit)? = null) {
     val context = LocalContext.current
     Column(Modifier.fillMaxWidth().background(SideCarColors.Panel).padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Text(listOfNotNull(p.author, p.age.takeIf { it.isNotBlank() }, "Promoted".takeIf { p.promoted }).joinToString("  ·  "),
@@ -121,6 +151,7 @@ private fun PostCard(p: LiPost, onLabel: (() -> Unit)?, onProfile: (() -> Unit)?
         Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             onLabel?.let { ActionChip(if (p.signal) "Noise" else "Not noise", if (p.signal) SideCarColors.Alert else SideCarColors.Emerald, it) }
             onProfile?.let { ActionChip("Profile", SideCarColors.Mauve, it) }
+            onSuppress?.let { ActionChip("Suppress", SideCarColors.Steel, it) }
             if (p.link.isNotBlank()) ActionChip("Open", SideCarColors.Steel) {
                 runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(p.link))) }
             }
@@ -184,7 +215,11 @@ private fun BriefingBar(vm: AppViewModel, info: LinkedInInfo, onChanged: () -> U
     var waitingForEpisode by remember { mutableStateOf(false) }
 
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { player?.release(); player = null } }
-    LaunchedEffect(playing) { while (playing) { position = player?.currentPosition ?: 0; delay(500) } }
+    val memoryKey = "li:${p.at}"
+    LaunchedEffect(playing) {
+        var n = 0
+        while (playing) { position = player?.currentPosition ?: 0; if (++n % 6 == 0) app.sidecarmonitor.data.PlaybackMemory.save(context, memoryKey, position); delay(500) }
+    }
 
     val ready = p.status == "ready" && !p.cleared
     suspend fun load(): android.media.MediaPlayer? {
@@ -198,9 +233,11 @@ private fun BriefingBar(vm: AppViewModel, info: LinkedInInfo, onChanged: () -> U
                 .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH).build())
             setDataSource(file.absolutePath)
             prepare()
-            setOnCompletionListener { playing = false }
+            setOnCompletionListener { playing = false; app.sidecarmonitor.data.PlaybackMemory.forget(context, memoryKey) }
         }
         player = mp; loadedFor = p.at; duration = mp.duration; note = ""
+        val from = app.sidecarmonitor.data.PlaybackMemory.resume(context, memoryKey, mp)
+        if (from > 0) { position = from; note = "Picking up where you left off (${app.sidecarmonitor.data.PlaybackMemory.format(from)})" }
         return mp
     }
     // Play pressed with no fresh episode: once the kiosk finishes it, start playing.
@@ -229,7 +266,7 @@ private fun BriefingBar(vm: AppViewModel, info: LinkedInInfo, onChanged: () -> U
         } else {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Big(if (playing) "\u23F8 Pause" else "\u25B6 Play", LinkedInBlue, Modifier.weight(1f)) {
-                    player?.let { if (playing) { it.pause(); playing = false } else { it.start(); playing = true } }
+                    player?.let { if (playing) { it.pause(); playing = false; app.sidecarmonitor.data.PlaybackMemory.save(context, memoryKey, it.currentPosition) } else { it.start(); playing = true } }
                 }
                 Big(if (listening) "Listening\u2026" else "\uD83C\uDFF7 Tag", SideCarColors.Amber, Modifier.weight(1.2f)) {
                     if (listening) return@Big
@@ -243,7 +280,7 @@ private fun BriefingBar(vm: AppViewModel, info: LinkedInInfo, onChanged: () -> U
                     }
                 }
                 Big("\u2713 Done", SideCarColors.Emerald, Modifier.weight(1f)) {
-                    player?.pause(); playing = false
+                    player?.pause(); playing = false; app.sidecarmonitor.data.PlaybackMemory.forget(context, memoryKey)
                     scope.launch { vm.linkedInPodcastClear(); note = "Cleared from the feed (still on profiles)"; onChanged() }
                 }
             }
