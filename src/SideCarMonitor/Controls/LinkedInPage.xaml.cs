@@ -269,20 +269,17 @@ public sealed partial class LinkedInPage : UserControl
         var s = _feed!.State;
         var card = new StackPanel { Spacing = 6 };
         card.Children.Add(new TextBlock { Text = "Briefing", FontSize = Font("FontTitle"), FontWeight = FontWeights.SemiBold });
+        // Informational only: the single Play briefing button at the top does everything.
+        var fresh = _feed.Signal.Count(p => !s.PodcastPostIds.Contains(p.Id));
         string info = s.PodcastStatus switch
         {
             "preparing" => "Preparing your briefing\u2026 (about a minute)",
             _ when s.PodcastStatus.StartsWith("failed") => $"Couldn't make it: {s.PodcastStatus[7..].Trim()}",
-            "ready" when !s.PodcastCleared => $"{Math.Max(1, (int)Math.Round(s.PodcastSeconds / 60))} min \u00B7 {s.PodcastPostIds.Count} posts \u00B7 made {s.PodcastAt:ddd h:mm tt}. Tap Play briefing at the top.",
-            _ => _feed.PodcastCandidates > 0 ? $"{_feed.PodcastCandidates} new signal posts. Play briefing makes one." : "Nothing new to brief.",
+            _ when fresh > 0 => $"{fresh} new signal post{(fresh == 1 ? "" : "s")}. Play briefing at the top makes a fresh briefing that covers them.",
+            "ready" when !s.PodcastCleared => $"Ready: {Math.Max(1, (int)Math.Round(s.PodcastSeconds / 60))} min, {s.PodcastPostIds.Count} posts, made {s.PodcastAt:ddd h:mm tt}. Tap Play briefing at the top.",
+            _ => "Nothing new to brief. Tap \u21BB to read LinkedIn.",
         };
         card.Children.Add(new TextBlock { Text = info, FontSize = Font("FontCaption"), Foreground = Res<Brush>("MutedText"), TextWrapping = TextWrapping.Wrap });
-        if (EpisodeReady && _feed.PodcastCandidates > s.PodcastPostIds.Count)
-        {
-            var fresh = Action($"New briefing ({_feed.PodcastCandidates} posts)", "TileCobalt", () => { });
-            fresh.Click += async (_, _) => { fresh.IsEnabled = false; _feed.State.PodcastStatus = "preparing"; RenderBriefingBar(); await Task.Run(() => _feed.PreparePodcastAsync()); Render(keepScroll: true); };
-            card.Children.Add(fresh);
-        }
         return new Border { Child = card, Padding = Res<Thickness>("PanelPadding"), CornerRadius = Res<CornerRadius>("SmallCorner"), Background = Res<Brush>("KioskBackground"), Margin = new Thickness(0, 0, 0, 8) };
     }
 
