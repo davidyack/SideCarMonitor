@@ -200,7 +200,8 @@ public sealed partial class LinkedInPage : UserControl
     private async Task PlayBriefingAsync()
     {
         if (_feed is null) return;
-        if (!EpisodeReady || (_feed.PodcastCandidates > 0 && _feed.State.PodcastCleared))
+        // Anything new since the last episode? Make a fresh one first, then play it.
+        if (!EpisodeReady || (_feed.PodcastHasNews && !(Playing || _player is not null && _playerEpisode == _feed.State.PodcastAt && _player.PlaybackSession.Position > TimeSpan.Zero)))
         {
             RenderBriefingBarPreparing();
             var error = await Task.Run(() => _feed.PreparePodcastAsync());

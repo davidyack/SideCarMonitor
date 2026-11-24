@@ -257,6 +257,7 @@ public sealed class XFeed(XClient x, EventJudge? decision, AgentHost? agent)
     // ---- Briefing (audio) with Interrupt ------------------------------------------------------------
 
     public int PodcastCandidates => Signal.Count();
+    public bool PodcastHasNews => Signal.Any(p => !State.PodcastPostIds.Contains(p.Id));
 
     public async Task<string?> PreparePodcastAsync()
     {

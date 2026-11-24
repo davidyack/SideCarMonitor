@@ -285,6 +285,9 @@ public sealed class LinkedInFeed
     public VoiceService? Voice { get; set; }
     private readonly SemaphoreSlim _podcastGate = new(1, 1);
 
+    /// <summary>True when there are signal posts the current episode doesn't cover (so Play makes a new one).</summary>
+    public bool PodcastHasNews => Signal.Any(p => !State.PodcastPostIds.Contains(p.Id));
+
     /// <summary>Signal posts not yet in a cleared episode: what the next episode would cover.</summary>
     public int PodcastCandidates => Signal.Count();
 

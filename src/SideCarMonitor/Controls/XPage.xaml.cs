@@ -312,7 +312,7 @@ public sealed partial class XPage : UserControl
     private async Task PlayAsync()
     {
         if (_feed is null) return;
-        if (!EpisodeReady)
+        if (!EpisodeReady || (_feed.PodcastHasNews && !(_player is not null && _playerEpisode == _feed.State.PodcastAt && _player.PlaybackSession.Position > TimeSpan.Zero)))
         {
             _feed.State.PodcastStatus = "preparing"; RenderBriefingBar();
             var err = await Task.Run(() => _feed.PreparePodcastAsync());
