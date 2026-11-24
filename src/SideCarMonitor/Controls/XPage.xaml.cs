@@ -315,9 +315,15 @@ public sealed partial class XPage : UserControl
         var midway = PlaybackMemory.Get($"x:{_feed.State.PodcastAt:o}") is not null; // partway through, even before a restart: finish it first
         if (!EpisodeReady || (_feed.PodcastHasNews && !midway && !(_player is not null && _playerEpisode == _feed.State.PodcastAt && _player.PlaybackSession.Position > TimeSpan.Zero)))
         {
+            if (_feed.PodcastCandidates == 0) { _note = "All caught up: no new signal posts to brief. Tap Update to check for more."; Render(true); return; }
+            var before = _feed.State.PodcastStatus;
             _feed.State.PodcastStatus = "preparing"; RenderBriefingBar();
             var err = await Task.Run(() => _feed.PreparePodcastAsync());
-            if (err is not null) { _note = err; Render(true); return; }
+            if (err is not null)
+            {
+                if (_feed.State.PodcastStatus == "preparing") _feed.State.PodcastStatus = before; // never started: don't stay stuck
+                _note = err; Render(true); return;
+            }
         }
         if (_player is null || _playerEpisode != _feed.State.PodcastAt)
         {

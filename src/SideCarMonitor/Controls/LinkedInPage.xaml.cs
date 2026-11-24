@@ -205,9 +205,15 @@ public sealed partial class LinkedInPage : UserControl
         var midway = PlaybackMemory.Get($"linkedin:{_feed.State.PodcastAt:o}") is not null;
         if (!EpisodeReady || (_feed.PodcastHasNews && !midway && !(Playing || _player is not null && _playerEpisode == _feed.State.PodcastAt && _player.PlaybackSession.Position > TimeSpan.Zero)))
         {
+            if (_feed.PodcastCandidates == 0) { _briefingNote = "All caught up: no new signal posts to brief. Run now to check for more."; Render(keepScroll: true); return; }
+            var before = _feed.State.PodcastStatus;
             RenderBriefingBarPreparing();
             var error = await Task.Run(() => _feed.PreparePodcastAsync());
-            if (error is not null) { _briefingNote = error; Render(keepScroll: true); return; }
+            if (error is not null)
+            {
+                if (_feed.State.PodcastStatus == "preparing") _feed.State.PodcastStatus = before; // it never started: don't stay stuck on "Preparing"
+                _briefingNote = error; Render(keepScroll: true); return;
+            }
         }
         if (_player is null || _playerEpisode != _feed.State.PodcastAt)
         {
