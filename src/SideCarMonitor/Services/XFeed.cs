@@ -275,7 +275,11 @@ public sealed class XFeed(XClient x, EventJudge? decision, AgentHost? agent)
     // ---- Briefing (audio) with Interrupt ------------------------------------------------------------
 
     public int PodcastCandidates => Signal.Count();
-    public bool PodcastHasNews => Signal.Any(p => !State.PodcastPostIds.Contains(p.Id));
+    /// <summary>
+    /// True when signal posts arrived after the current episode was made (worth a fresh one). Not "any post the episode
+    /// didn't cover": an episode covers the newest posts, so older uncovered ones would make Play re-prepare forever.
+    /// </summary>
+    public bool PodcastHasNews => State.PodcastAt is not { } made || Signal.Any(p => p.FirstSeen > made && !State.PodcastPostIds.Contains(p.Id));
 
     public async Task<string?> PreparePodcastAsync()
     {

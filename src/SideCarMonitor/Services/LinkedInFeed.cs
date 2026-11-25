@@ -340,7 +340,11 @@ public sealed class LinkedInFeed
     private readonly SemaphoreSlim _podcastGate = new(1, 1);
 
     /// <summary>True when there are signal posts the current episode doesn't cover (so Play makes a new one).</summary>
-    public bool PodcastHasNews => Signal.Any(p => !State.PodcastPostIds.Contains(p.Id));
+    /// <summary>
+    /// True when signal posts arrived after the current episode was made (worth a fresh one). Not "any post the episode
+    /// didn't cover": an episode covers the newest posts, so older uncovered ones would make Play re-prepare forever.
+    /// </summary>
+    public bool PodcastHasNews => State.PodcastAt is not { } made || Signal.Any(p => p.FirstSeen > made && !State.PodcastPostIds.Contains(p.Id));
 
     /// <summary>Signal posts not yet in a cleared episode: what the next episode would cover.</summary>
     public int PodcastCandidates => Signal.Count();
