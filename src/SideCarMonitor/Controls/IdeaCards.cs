@@ -13,6 +13,7 @@ public static class IdeaCards
     private static double Font(string key) => Res<double>(key);
 
     public static string Filter { get; set; } = "all";
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> Status = new();
 
     public static int Count(IdeaRadar? radar) => radar?.Ranked().Count(i => i.Status == "new") ?? 0;
 
@@ -65,6 +66,27 @@ public static class IdeaCards
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 6, 0, 0) };
         if (idea.Status != "todo")
             buttons.Children.Add(Button("Make to-do", "TileEmerald", () => { radar.MakeTask(idea.Id); rerender(); }));
+        if (radar.PmCollab is not null)
+        {
+            if (idea.SignalId is null)
+                buttons.Children.Add(Button("Send to PMCollab", "TileCobalt", () =>
+                {
+                    Status[idea.Id] = "Sending\u2026"; rerender();
+                    _ = Task.Run(async () =>
+                    {
+                        var error = await radar.SendToPmCollabAsync(idea.Id);
+                        Status[idea.Id] = error ?? "In your PMCollab Brain";
+                    });
+                }));
+            else
+                body.Children.Add(new TextBlock
+                {
+                    Text = idea.SignalId == "unknown" ? "PMCollab: not sure it arrived; check your Brain" : idea.SignalId == "sending" ? "Sending to PMCollab\u2026" : $"In your PMCollab Brain \u2713 ({idea.SignalAt:MMM d})",
+                    FontSize = Font("FontCaption"), Foreground = Res<Brush>("AccentText"),
+                });
+        }
+        if (Status.TryGetValue(idea.Id, out var status) && idea.SignalId is null)
+            body.Children.Add(new TextBlock { Text = status, FontSize = Font("FontCaption"), Foreground = Res<Brush>("AlertBrush"), TextWrapping = TextWrapping.Wrap });
         buttons.Children.Add(Button("Not useful", "PanelBorder", () => { radar.Dismiss(idea.Id); rerender(); }));
         if (idea.Evidence.FirstOrDefault(e => e.Link.Length > 0) is { } src)
             buttons.Children.Add(Button("Source post", "PanelBorder", () =>

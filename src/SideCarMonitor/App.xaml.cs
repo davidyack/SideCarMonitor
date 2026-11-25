@@ -95,6 +95,27 @@ public partial class App : Application
         }
 
         // PMCollab MCP sign-in ("--pmcollab-login") and a tool listing for checking ("--pmcollab-tools <out.json>").
+        // "--pmcollab-call <tool> <args.json> <out.json>": one tool call, for checking.
+        if (cl.Contains("--pmcollab-call", StringComparer.OrdinalIgnoreCase))
+        {
+            var rest = cl.SkipWhile(x => !x.Equals("--pmcollab-call", StringComparison.OrdinalIgnoreCase)).Skip(1).ToList();
+            _ = Task.Run(async () =>
+            {
+                var log = Path.Combine(Path.GetDirectoryName(TasksPath)!, "pmcollab.log");
+                try
+                {
+                    var mcp = new Services.PmCollabMcp("https://dev1.pmcollab.ai/mcp/pmc");
+                    var args = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(rest[1]))!.AsObject();
+                    var result = await mcp.CallToolAsync(rest[0], args);
+                    File.WriteAllText(rest[2], result?.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }) ?? "null");
+                    File.AppendAllText(log, $"{DateTimeOffset.Now:u} called {rest[0]}\n");
+                }
+                catch (Exception ex) { File.AppendAllText(log, $"{DateTimeOffset.Now:u} {ex.GetType().Name}: {ex.Message}\n"); }
+                Environment.Exit(0);
+            });
+            return;
+        }
+
         if (cl.Contains("--pmcollab-login", StringComparer.OrdinalIgnoreCase) || cl.Contains("--pmcollab-tools", StringComparer.OrdinalIgnoreCase))
         {
             _ = Task.Run(async () =>

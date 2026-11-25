@@ -90,6 +90,20 @@ fun IdeasList(vm: AppViewModel, showFilters: Boolean = false) {
                 idea.evidence.take(2).forEach { e ->
                     Text("“${e.quote}” — ${e.author} (${if (e.source == "x") "X" else "LinkedIn"})", fontSize = 12.sp, color = SideCarColors.Muted, maxLines = 2)
                 }
+                var sendNote by remember(idea.id) { mutableStateOf("") }
+                when (idea.signal) {
+                    null -> {}
+                    "unknown" -> Text("PMCollab: not sure it arrived; check your Brain", fontSize = 13.sp, color = SideCarColors.Amber)
+                    else -> Text("In your PMCollab Brain \u2713", fontSize = 13.sp, color = Color(0xFF6CB4FF))
+                }
+                if (sendNote.isNotBlank()) Text(sendNote, fontSize = 13.sp, color = SideCarColors.Amber)
+                if (info?.pmcollab == true && idea.signal == null) Row(Modifier.padding(top = 6.dp)) {
+                    Chip(if (sendNote == "Sending\u2026") sendNote else "Send to PMCollab", SideCarColors.Cobalt) {
+                        if (sendNote == "Sending\u2026") return@Chip
+                        sendNote = "Sending\u2026"
+                        scope.launch { sendNote = vm.kiosk?.ideaAction(idea.id, "pmcollab") ?: ""; reload() }
+                    }
+                }
                 Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     if (idea.status != "todo") Chip("Make to-do", SideCarColors.Emerald) { scope.launch { vm.kiosk?.ideaAction(idea.id, "todo"); reload() } }
                     Chip("Not useful", SideCarColors.Steel) { scope.launch { vm.kiosk?.ideaAction(idea.id, "dismiss"); reload() } }

@@ -136,11 +136,12 @@ data class IdeaEvidence(val source: String = "", val author: String = "", val qu
 data class IdeaInfo(
     val id: String = "", val kind: String = "", val kindLabel: String = "", val title: String = "", val pitch: String = "", val why: String = "",
     val whoPays: String = "", val smallest: String = "", val effort: String = "", val score: Int = 0, val status: String = "",
-    val pmcollab: Boolean = false, val sources: Int = 0, val evidence: List<IdeaEvidence> = emptyList(),
+    val pmcollab: Boolean = false, val sources: Int = 0, val evidence: List<IdeaEvidence> = emptyList(), val signal: String? = null,
 )
 
 @Serializable
-data class IdeasInfo(val available: Boolean = false, val busy: Boolean = false, val lastResult: String = "", val ideas: List<IdeaInfo> = emptyList())
+data class IdeasInfo(val available: Boolean = false, val busy: Boolean = false, val lastResult: String = "", val ideas: List<IdeaInfo> = emptyList(),
+                     val pmcollab: Boolean = false)
 
 @Serializable
 data class LiSource(val author: String = "", val headline: String = "", val posts: Int = 0, val signal: Int = 0, val ads: Int = 0, val suppressed: Boolean = false)

@@ -1241,7 +1241,8 @@ public sealed partial class MainWindow : Window
         var profilePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SideCarMonitor", "pmcollab-profile.md");
         if (_agent is not null && File.Exists(profilePath))
         {
-            _ideas = new IdeaRadar(_agent, File.ReadAllText(profilePath)) { Tasks = _taskService };
+            var pmc = new PmCollabMcp(a.PmCollabMcp);
+            _ideas = new IdeaRadar(_agent, File.ReadAllText(profilePath)) { Tasks = _taskService, PmCollab = pmc.SignedIn ? pmc : null };
             _ideas.Changed += () => DispatcherQueue.TryEnqueue(() =>
             {
                 UpdateIdeasTile();

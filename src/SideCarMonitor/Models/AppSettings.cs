@@ -61,6 +61,9 @@ public sealed class AssistantSettings
     public string? SpeechEndpoint { get; set; }
     public string TranscribeModel { get; set; } = "mai-transcribe-2-streaming";
     public string Voice { get; set; } = "en-US-Harper:MAI-Voice-2.1-Flash";
+    /// <summary>PMCollab's MCP server (ideas are sent there as Brain signals; sign in with --pmcollab-login).</summary>
+    public string PmCollabMcp { get; set; } = "https://dev1.pmcollab.ai/mcp/pmc";
+
     /// <summary>Minutes before a meeting that the prep heads-up arrives (0 turns it off).</summary>
     public int MeetingPrepMinutes { get; set; } = 30;
 

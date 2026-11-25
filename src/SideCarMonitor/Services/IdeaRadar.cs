@@ -41,6 +41,9 @@ public sealed class IdeaRadar(AgentHost agent, string profile)
         public DateTime Updated { get; set; }
         public string Status { get; set; } = "new"; // new | todo | dismissed
         public string? TaskId { get; set; }
+        /// <summary>The PMCollab Brain signal id once sent ("unknown" if the send timed out: it may have arrived).</summary>
+        public string? SignalId { get; set; }
+        public DateTime? SignalAt { get; set; }
         public bool IsPmCollab => Kind.StartsWith("pmcollab");
         public string KindLabel => Kind switch { "pmcollab-problem" => "PMCollab: problem to solve", "pmcollab-feature" => "PMCollab: feature", _ => "Wild idea" };
         /// <summary>Rank: the agent's score plus a little for every independent mention.</summary>
@@ -191,6 +194,72 @@ public sealed class IdeaRadar(AgentHost agent, string profile)
         idea.TaskId = task.Id; idea.Status = "todo"; idea.Updated = DateTime.Now;
         Save(); Changed?.Invoke();
         return null;
+    }
+
+    public PmCollabMcp? PmCollab { get; set; }
+    private string? _workspaceId;
+
+    /// <summary>The signal text: title line, pitch, the analysis, and evidence with links (quotes marked as AI-picked).</summary>
+    public static string SignalText(Idea i)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine(i.Title.Length > 100 ? i.Title[..97] + "..." : i.Title);
+        sb.AppendLine();
+        sb.AppendLine(i.Pitch);
+        sb.AppendLine();
+        sb.AppendLine($"Kind: {i.KindLabel} \u00B7 Score {i.Score}" + (i.Effort.Length > 0 ? $" \u00B7 Effort {i.Effort}" : "") +
+                      $" \u00B7 {i.Evidence.Select(e => e.Author).Distinct().Count()} sources");
+        if (i.Why.Length > 0) sb.AppendLine($"{(i.IsPmCollab ? "The pain" : "Why now")}: {i.Why}");
+        if (i.WhoPays.Length > 0) sb.AppendLine($"Who'd pay: {i.WhoPays}");
+        if (i.Smallest.Length > 0) sb.AppendLine($"Smallest version: {i.Smallest}");
+        if (i.Evidence.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("Evidence (quotes picked by an AI agent from public posts; check the source):");
+            foreach (var e in i.Evidence.Take(6))
+                sb.AppendLine($"- {e.Author} ({(e.Source == "x" ? "X" : "LinkedIn")}, {e.At:MMM d}): \"{e.Quote}\"" + (e.Link.Length > 0 ? $" {e.Link}" : ""));
+        }
+        sb.AppendLine();
+        sb.Append("Found by SideCar's feed radar in the user's LinkedIn and X feeds; the score and analysis are the agent's, not a decision.");
+        return sb.ToString();
+    }
+
+    /// <summary>Send to PMCollab: one Brain signal per idea (never resent: the tool isn't retry-safe).</summary>
+    public async Task<string?> SendToPmCollabAsync(string id)
+    {
+        if (Data.Ideas.FirstOrDefault(i => i.Id == id) is not { } idea) return "Not found";
+        if (PmCollab is null) return "PMCollab isn't connected (run SideCarMonitor.exe --pmcollab-login).";
+        if (idea.SignalId is not null) return null;
+        try
+        {
+            if (_workspaceId is null)
+            {
+                var me = await PmCollab.CallToolAsync("pmc_user_info", new JsonObject());
+                var info = JsonNode.Parse(me?["content"]?[0]?["text"]?.GetValue<string>() ?? "{}");
+                _workspaceId = info?["workspaceIds"]?[0]?.GetValue<string>() ?? throw new InvalidOperationException("SideCar has no PMCollab workspace grant.");
+            }
+        }
+        catch (Exception ex) { return ex.Message; }
+
+        idea.SignalId = "sending"; // from here on, never send twice
+        try
+        {
+            var result = await PmCollab.CallToolAsync("brain_signal_submit", new JsonObject { ["workspaceId"] = _workspaceId, ["content"] = SignalText(idea) });
+            var text = result?["content"]?[0]?["text"]?.GetValue<string>() ?? "";
+            if (result?["isError"]?.GetValue<bool>() == true) { idea.SignalId = null; return "PMCollab said: " + (text.Length > 200 ? text[..200] : text); }
+            var parsed = text.StartsWith('{') ? JsonNode.Parse(text) : null;
+            idea.SignalId = parsed?["id"]?.GetValue<string>() ?? parsed?["signalId"]?.GetValue<string>() ?? "sent";
+            idea.SignalAt = DateTime.Now;
+            SystemEvents.Report("Sent an idea to PMCollab", idea.Title);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            // It may have arrived; resending would duplicate it. Say so instead.
+            idea.SignalId = "unknown"; idea.SignalAt = DateTime.Now;
+            return $"Not sure it arrived ({ex.Message}); check your PMCollab Brain before sending again.";
+        }
+        finally { Save(); Changed?.Invoke(); }
     }
 
     public void Dismiss(string id)

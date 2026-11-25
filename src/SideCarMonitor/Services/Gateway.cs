@@ -195,19 +195,25 @@ public sealed class Gateway : IAsyncDisposable
             if (Ideas is not { } r) return Results.Json(new { available = false });
             return Results.Json(new
             {
-                available = true, busy = r.Busy, lastRun = r.Data.LastRun, lastResult = r.Data.LastResult,
+                available = true, busy = r.Busy, lastRun = r.Data.LastRun, lastResult = r.Data.LastResult, pmcollab = r.PmCollab is not null,
                 ideas = r.Ranked(filter ?? "all").Take(60).Select(i => new
                 {
                     i.Id, i.Kind, i.KindLabel, i.Title, i.Pitch, i.Why, i.WhoPays, i.Smallest, i.Effort, i.Score, i.Status, pmcollab = i.IsPmCollab,
+                    signal = i.SignalId,
                     sources = i.Evidence.Select(e => e.Author).Distinct().Count(),
                     evidence = i.Evidence.Take(4).Select(e => new { e.Source, e.Author, e.Quote, e.Link, at = e.At }),
                 }),
             });
         });
-        app.MapPost("/api/ideas/{id}/action", (string id, JsonObject b) =>
+        app.MapPost("/api/ideas/{id}/action", async (string id, JsonObject b) =>
         {
             if (Ideas is not { } r) return Results.NotFound();
             if (b["action"]?.GetValue<string>() == "dismiss") { r.Dismiss(id); return Results.Ok(new { ok = true }); }
+            if (b["action"]?.GetValue<string>() == "pmcollab")
+            {
+                var sent = await r.SendToPmCollabAsync(id);
+                return sent is null ? Results.Ok(new { ok = true }) : Results.Json(new { error = sent }, statusCode: 400);
+            }
             var error = r.MakeTask(id);
             return error is null ? Results.Ok(new { ok = true }) : Results.Json(new { error }, statusCode: 400);
         });
