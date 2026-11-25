@@ -159,8 +159,6 @@ fun HomeScreen(state: UiState, vm: app.sidecarmonitor.AppViewModel, onOpen: (Scr
                 label = "Activity")
             Tile(Color(0xFF2F3640), Modifier.weight(1f).aspectRatio(1f), onClick = { onOpen(Screen.X) },
                 icon = null, value = "\uD835\uDD4F", detail = "Signal", label = "X")
-            Tile(SideCarColors.Mauve, Modifier.weight(1f).aspectRatio(1f), onClick = onTalk,
-                icon = Icons.AutoMirrored.Filled.Chat, value = "", detail = "Ask anything", label = "SideCar")
         }
         val todo = state.tasks?.views
         val needs = todo?.needsMe.orEmpty()
