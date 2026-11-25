@@ -92,13 +92,11 @@ fun WeekScreen(
     val zones = remember { mutableStateMapOf<DropZone, Rect>() }
     val rows = remember { mutableStateMapOf<String, Rect>() }      // each task row's bounds in root
     var dragging by remember { mutableStateOf<TaskRow?>(null) }
-    var dragStartOrigin by remember { mutableStateOf(Offset.Zero) }
-    var dragDelta by remember { mutableStateOf(Offset.Zero) }
-    var touchInRow by remember { mutableStateOf(Offset.Zero) }
+    var finger by remember { mutableStateOf(Offset.Zero) }      // the finger, in screen (root) coordinates
+    var touchInRow by remember { mutableStateOf(Offset.Zero) }  // where on the row you grabbed it
     var expanded by remember { mutableStateOf<String?>(null) }    // the day opened while dragging
-    // The finger in root coordinates: the dragged row's current position + where you touched it + how far you moved.
-    // (Using the row's live position keeps this right while days collapse and expand around it.)
-    val pointer = (dragging?.let { rows[it.id]?.topLeft } ?: dragStartOrigin) + touchInRow + dragDelta
+    // Tracked directly in screen coordinates on every move, so it stays under the finger while days collapse and open.
+    val pointer = finger
     val hovered = dragging?.let { zones.entries.firstOrNull { it.value.contains(pointer) }?.key }
 
     // Hold over a day for a moment: open it so you can pick the exact spot.
@@ -137,8 +135,8 @@ fun WeekScreen(
         return others.count { (rows[it.id]?.center?.y ?: Float.MAX_VALUE) < pointer.y }
     }
 
-    val startDrag: (TaskRow, Offset, Offset) -> Unit = { row, origin, touch ->
-        dragging = row; dragStartOrigin = origin; touchInRow = touch; dragDelta = Offset.Zero; expanded = null
+    val startDrag: (TaskRow, Offset, Offset) -> Unit = { row, rootTouch, touch ->
+        dragging = row; finger = rootTouch; touchInRow = touch; expanded = null
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
     }
     val endDrag: () -> Unit = {
@@ -167,7 +165,7 @@ fun WeekScreen(
             val held = t.id == dragging?.id
             if (!held && shown == dropAt) DropLine()
             key(t.id) {
-                if (open || held) TaskLine(t, dragging, onToggleDone, onOpen, startDrag, { dragDelta += it }, endDrag) { id, b -> rows[id] = b }
+                if (open || held) TaskLine(t, dragging, onToggleDone, onOpen, startDrag, { finger = it }, endDrag) { id, b -> rows[id] = b }
             }
             if (!held) shown++
         }
@@ -184,8 +182,8 @@ fun WeekScreen(
             IconButton(onClick = { onWeek(-1) }, modifier = Modifier.size(56.dp)) { Icon(Icons.Filled.ChevronLeft, "Previous week", Modifier.size(32.dp)) }
             IconButton(onClick = { onWeek(1) }, modifier = Modifier.size(56.dp)) { Icon(Icons.Filled.ChevronRight, "Next week", Modifier.size(32.dp)) }
         }
-        if (dragging == null) {
-            // Needs me / Done one tap away, and a quick add (to today).
+        run {
+            // Needs me / Done one tap away, and a quick add (to today). Stays put while dragging so nothing jumps.
             Row(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("Needs me $needsMe", Modifier.clip(RoundedCornerShape(6.dp)).background(if (needsMe > 0) SideCarColors.Crimson else SideCarColors.Panel)
                     .clickable { onList("needsMe") }.padding(horizontal = 14.dp, vertical = 10.dp), fontSize = 15.sp)
@@ -305,7 +303,7 @@ private fun TaskLine(
     onDragEnd: () -> Unit,
     onBounds: (String, Rect) -> Unit,
 ) {
-    var rowOrigin by remember { mutableStateOf(Offset.Zero) }
+    var coords by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
     // The drag handler below is set up once per task; these always hand it the latest callbacks
     // (otherwise the drop would see the hover target from when the row was first drawn: none).
     val startNow by rememberUpdatedState(onDragStart)
@@ -315,12 +313,12 @@ private fun TaskLine(
     val locked = done // hard deadlines can still be reordered within their day (the kiosk refuses a day change)
     Row(
         Modifier.fillMaxWidth().heightIn(min = 56.dp)
-            .onGloballyPositioned { rowOrigin = it.positionInRoot(); onBounds(t.id, it.boundsInRoot()) }
+            .onGloballyPositioned { coords = it; onBounds(t.id, it.boundsInRoot()) }
             .graphicsLayer { alpha = if (dragging?.id == t.id) 0.3f else 1f }
             .then(if (locked) Modifier else Modifier.pointerInput(t.id) {
                 detectDragGesturesAfterLongPress(
-                    onDragStart = { touch -> startNow(t, rowOrigin, touch) },
-                    onDrag = { change, amount -> change.consume(); dragNow(amount) },
+                    onDragStart = { touch -> startNow(t, coords?.localToRoot(touch) ?: touch, touch) },
+                    onDrag = { change, _ -> change.consume(); coords?.takeIf { it.isAttached }?.let { dragNow(it.localToRoot(change.position)) } },
                     onDragEnd = { endNow() },
                     onDragCancel = { endNow() },
                 )
