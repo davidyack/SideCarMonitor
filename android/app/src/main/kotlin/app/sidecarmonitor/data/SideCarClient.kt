@@ -100,7 +100,14 @@ data class LinkedInInfo(
 data class LiPodcast(
     val status: String = "", val at: String? = null, val seconds: Double = 0.0, val posts: Int = 0,
     val cleared: Boolean = false, val candidates: Int = 0, val hasNews: Boolean = false,
-)
+    /** Where each paragraph starts (seconds) and the posts it covers, for "Now discussing". */
+    val segments: List<PodSegment> = emptyList(),
+) {
+    fun postsAt(seconds: Double): List<String> = segments.lastOrNull { it.start <= seconds + 0.3 }?.posts.orEmpty()
+}
+
+@Serializable
+data class PodSegment(val start: Double = 0.0, val posts: List<String> = emptyList())
 
 @Serializable
 data class LiPerson(val url: String, val name: String = "", val headline: String = "", val summary: String = "", val posts: List<LiPost> = emptyList())

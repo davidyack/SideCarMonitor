@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -51,6 +52,8 @@ fun LinkedInScreen(vm: AppViewModel, onBack: () -> Unit) {
     var note by remember { mutableStateOf("Loading…") }
     var person by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    var nowIds by remember { mutableStateOf<List<String>>(emptyList()) }
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
 
     suspend fun reload() {
         val i = vm.linkedIn()
@@ -74,7 +77,7 @@ fun LinkedInScreen(vm: AppViewModel, onBack: () -> Unit) {
 
     Column(Modifier.fillMaxSize()) {
         PageHeader("LinkedIn", onBack)
-        info?.let { i -> BriefingBar(vm, i) { scope.launch { reload() } } }
+        info?.let { i -> BriefingBar(vm, i, onNow = { ids -> if (ids != nowIds) { nowIds = ids; if (ids.isNotEmpty()) scope.launch { listState.animateScrollToItem(0) } } }) { scope.launch { reload() } } }
         Row(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             val i = info
             TabChip("Signal ${i?.signal?.size ?: 0}", tab == "signal") { tab = "signal" }
@@ -115,7 +118,13 @@ fun LinkedInScreen(vm: AppViewModel, onBack: () -> Unit) {
             return@Column
         }
         val posts = if (tab == "signal") info?.signal.orEmpty() else info?.noise.orEmpty()
-        LazyColumn(Modifier.padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        LazyColumn(Modifier.padding(horizontal = 12.dp), state = listState, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            // While a briefing plays: the post(s) it's talking about right now, pinned at the top.
+            val now = nowIds.mapNotNull { id -> (info?.signal.orEmpty() + info?.noise.orEmpty()).firstOrNull { it.id == id } }
+            if (now.isNotEmpty()) {
+                item { Text("\u25B6  Now discussing", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = SideCarColors.Amber) }
+                items(now, key = { "now-" + it.id }) { p -> PostCard(p, onLabel = null, onProfile = null, compact = true, highlighted = true) }
+            }
             val digest = info?.digest.orEmpty()
             if (tab == "signal" && digest.isNotBlank()) item {
                 Column(Modifier.fillMaxWidth().background(SideCarColors.Panel).padding(12.dp)) {
@@ -124,7 +133,7 @@ fun LinkedInScreen(vm: AppViewModel, onBack: () -> Unit) {
                 }
             }
             items(posts, key = { it.id }) { p ->
-                PostCard(p,
+                PostCard(p, highlighted = p.id in nowIds,
                     onLabel = { scope.launch { vm.linkedInLabel(p.id, !p.signal); reload() } },
                     onProfile = if (p.authorUrl.isNotBlank()) ({ person = p.authorUrl }) else null,
                     onSuppress = if (tab == "noise" && !p.promoted && p.author.isNotBlank() && info?.sources?.any { it.author == p.author && it.suppressed } != true)
@@ -142,9 +151,11 @@ private fun TabChip(text: String, selected: Boolean, color: Color = SideCarColor
         .clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 10.dp), fontSize = 15.sp)
 
 @Composable
-private fun PostCard(p: LiPost, onLabel: (() -> Unit)?, onProfile: (() -> Unit)?, compact: Boolean = false, onSuppress: (() -> Unit)? = null) {
+private fun PostCard(p: LiPost, onLabel: (() -> Unit)?, onProfile: (() -> Unit)?, compact: Boolean = false, onSuppress: (() -> Unit)? = null,
+                     highlighted: Boolean = false) {
     val context = LocalContext.current
-    Column(Modifier.fillMaxWidth().background(SideCarColors.Panel).padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+    Column(Modifier.fillMaxWidth().background(SideCarColors.Panel)
+        .then(if (highlighted) Modifier.border(3.dp, SideCarColors.Amber) else Modifier).padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Text(listOfNotNull(p.author, p.age.takeIf { it.isNotBlank() }, "Promoted".takeIf { p.promoted }).joinToString("  ·  "),
             fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         if (!compact && p.headline.isNotBlank()) Text(p.headline, fontSize = 13.sp, color = SideCarColors.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -203,7 +214,7 @@ private fun PersonView(vm: AppViewModel, url: String, onBack: () -> Unit) {
  * note on it, and resumes on its own. Done clears the episode's posts from the feed.
  */
 @Composable
-private fun BriefingBar(vm: AppViewModel, info: LinkedInInfo, onChanged: () -> Unit) {
+private fun BriefingBar(vm: AppViewModel, info: LinkedInInfo, onNow: (List<String>) -> Unit = {}, onChanged: () -> Unit) {
     val p = info.podcast
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -222,6 +233,9 @@ private fun BriefingBar(vm: AppViewModel, info: LinkedInInfo, onChanged: () -> U
         var n = 0
         while (playing) { position = player?.currentPosition ?: 0; if (++n % 6 == 0) app.sidecarmonitor.data.PlaybackMemory.save(context, memoryKey, position); delay(500) }
     }
+    // Follow the briefing: which post(s) it's talking about now (also when paused or after a seek).
+    LaunchedEffect(position, player) { onNow(if (player != null) p.postsAt(position / 1000.0) else emptyList()) }
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { onNow(emptyList()) } }
 
     val ready = p.status == "ready" && !p.cleared
     suspend fun load(): android.media.MediaPlayer? {

@@ -95,6 +95,14 @@ public sealed partial class XPage : UserControl
             RenderBriefingBar();
             return;
         }
+        // While a briefing plays: the post(s) it's talking about right now, pinned at the top.
+        if (_nowIds.Count > 0 && _tab is "signal" or "noise" or "saved")
+        {
+            PostsPanel.Children.Add(new TextBlock { Text = "\u25B6  Now discussing", FontSize = Font("FontCaption"), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = Res<Brush>("TileAmber") });
+            foreach (var id in _nowIds)
+                if (_feed.State.Posts.TryGetValue(id, out var np)) PostsPanel.Children.Add(PostCard(np));
+            PostsPanel.Children.Add(new Border { Height = 2, Background = Res<Brush>("PanelBorder"), Margin = new Thickness(0, 4, 0, 4) });
+        }
         var list = (_tab switch { "noise" => _feed.Noise, "saved" => _feed.SavedPosts, _ => _feed.Signal }).Take(80).ToList();
         foreach (var p in list) PostsPanel.Children.Add(PostCard(p));
         if (list.Count == 0)
@@ -140,7 +148,9 @@ public sealed partial class XPage : UserControl
             foreach (var t in buttons.Children.OfType<TextBlock>()) { t.VerticalAlignment = VerticalAlignment.Center; t.Margin = new Thickness(8, 0, 0, 0); }
         }
         body.Children.Add(buttons);
-        return new Border { Child = body, Padding = Res<Thickness>("PanelPadding"), CornerRadius = Res<CornerRadius>("SmallCorner"), Background = Res<Brush>("PanelBackground") };
+        var now = _nowIds.Contains(p.Id);
+        return new Border { Child = body, Padding = Res<Thickness>("PanelPadding"), CornerRadius = Res<CornerRadius>("SmallCorner"), Background = Res<Brush>("PanelBackground"),
+                            BorderBrush = now ? Res<Brush>("TileAmber") : null, BorderThickness = new Thickness(now ? 3 : 0) };
     }
 
     /// <summary>Opens Grok on X (your own account, private, free) with a prompt about this post pre-filled.</summary>
@@ -316,7 +326,7 @@ public sealed partial class XPage : UserControl
         BriefingBar.Children.Add(Playing ? BarButton("", "Pause", "TileCobalt", () => { _player!.Pause(); RenderBriefingBar(); })
                                          : BarButton("", "Play", "TileCobalt", () => { _player!.Play(); RenderBriefingBar(); }));
         BriefingBar.Children.Add(BarButton("", _listening ? "Listening…" : "Tag", "TileAmber", () => _ = TagAsync()));
-        BriefingBar.Children.Add(BarButton("", "Done", "TileEmerald", () => { _player?.Pause(); _player?.Dispose(); _player = null; _clock?.Stop(); _note = $"Cleared {_feed.ClearPodcastPosts()} posts from the feed"; Render(false); }));
+        BriefingBar.Children.Add(BarButton("", "Done", "TileEmerald", () => { _player?.Pause(); _player?.Dispose(); _player = null; _clock?.Stop(); _nowIds = []; _note = $"Cleared {_feed.ClearPodcastPosts()} posts from the feed"; Render(false); }));
         var pos = _player!.PlaybackSession.Position; var len = _player.PlaybackSession.NaturalDuration;
         BriefingBar.Children.Add(new TextBlock { Text = $"{(int)pos.TotalMinutes}:{pos.Seconds:00} / {(int)len.TotalMinutes}:{len.Seconds:00}", FontSize = Font("FontCaption"), Foreground = Res<Brush>("MutedText"), VerticalAlignment = VerticalAlignment.Center });
     }
@@ -352,7 +362,19 @@ public sealed partial class XPage : UserControl
         Render(true);
     }
 
-    private void Tick(object? sender, object e) { if (Visibility == Visibility.Visible) RenderBriefingBar(); }
+    private IReadOnlyList<string> _nowIds = [];
+
+    private void Tick(object? sender, object e)
+    {
+        if (Visibility != Visibility.Visible) return;
+        RenderBriefingBar();
+        // Follow the briefing: when it moves to another post, show and outline that post.
+        var ids = _player is { } pl && _feed is { } f ? f.PostsAt(pl.PlaybackSession.Position.TotalSeconds) : [];
+        if (ids.SequenceEqual(_nowIds)) return;
+        _nowIds = ids;
+        Render(false);
+        ListScroll.ChangeView(null, 0, null, false);
+    }
 
     private async Task TagAsync()
     {

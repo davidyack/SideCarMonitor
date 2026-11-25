@@ -104,6 +104,10 @@ public sealed class XFeed(XClient x, EventJudge? decision, AgentHost? agent)
         Changed?.Invoke();
     }
 
+    /// <summary>The posts the briefing is talking about at <paramref name="seconds"/> (empty for the intro or bottom line).</summary>
+    public IReadOnlyList<string> PostsAt(double seconds) =>
+        State.PodcastSegments.LastOrDefault(s => s.Start <= seconds + 0.3)?.PostIds ?? [];
+
     public IEnumerable<XItem> Signal => State.Posts.Values.Where(p => p.IsSignal && !p.Cleared).OrderByDescending(p => p.Created);
     public IEnumerable<XItem> Noise => State.Posts.Values.Where(p => !p.IsSignal && !p.Cleared).OrderByDescending(p => p.Created);
     /// <summary>Signal to noise over everything pulled in the last <paramref name="days"/> days (cleared or not).</summary>

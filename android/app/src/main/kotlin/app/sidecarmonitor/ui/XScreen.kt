@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -52,6 +53,8 @@ fun XScreen(vm: AppViewModel, onBack: () -> Unit) {
     var note by remember { mutableStateOf("Loading…") }
     var analysisFor by remember { mutableStateOf<XPost?>(null) }
     val scope = rememberCoroutineScope()
+    var nowIds by remember { mutableStateOf<List<String>>(emptyList()) }
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
 
     suspend fun reload() {
         val i = runCatching { vm.kiosk?.x() }.getOrNull()
@@ -81,6 +84,7 @@ fun XScreen(vm: AppViewModel, onBack: () -> Unit) {
                 prepare = { vm.kiosk?.xPodcastPrepare() },
                 clear = { vm.kiosk?.xPodcastClear() },
                 interrupt = { pos, heard -> vm.xInterrupt(pos, heard) },
+                onNow = { ids -> if (ids != nowIds) { nowIds = ids; if (ids.isNotEmpty()) scope.launch { listState.animateScrollToItem(0) } } },
                 onChanged = { scope.launch { reload() } },
             )
         }
@@ -109,8 +113,14 @@ fun XScreen(vm: AppViewModel, onBack: () -> Unit) {
             return@Column
         }
         val posts = when (tab) { "noise" -> info?.noise; "saved" -> info?.saved; else -> info?.signal }.orEmpty()
-        LazyColumn(Modifier.padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(posts, key = { it.id }) { p -> XCard(vm, p, onAnalyze = { analysisFor = p }) { scope.launch { reload() } } }
+        LazyColumn(Modifier.padding(horizontal = 12.dp), state = listState, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            // While a briefing plays: the post(s) it's talking about right now, pinned at the top.
+            val now = nowIds.mapNotNull { id -> (info?.signal.orEmpty() + info?.noise.orEmpty() + info?.saved.orEmpty()).firstOrNull { it.id == id } }
+            if (now.isNotEmpty()) {
+                item { Text("\u25B6  Now discussing", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = SideCarColors.Amber) }
+                items(now, key = { "now-" + it.id }) { p -> XCard(vm, p, onAnalyze = { analysisFor = p }, highlighted = true) { scope.launch { reload() } } }
+            }
+            items(posts, key = { it.id }) { p -> XCard(vm, p, onAnalyze = { analysisFor = p }, highlighted = p.id in nowIds) { scope.launch { reload() } } }
             if (posts.isEmpty()) item { Text("Nothing here. Tap Update.", color = SideCarColors.Muted) }
             item { Spacer(Modifier.height(96.dp)) }
         }
@@ -123,7 +133,7 @@ private fun Chip(text: String, selected: Boolean, color: Color = SideCarColors.C
         .clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 10.dp), fontSize = 14.sp)
 
 @Composable
-private fun XCard(vm: AppViewModel, p: XPost, onAnalyze: () -> Unit, onChanged: () -> Unit) {
+private fun XCard(vm: AppViewModel, p: XPost, onAnalyze: () -> Unit, highlighted: Boolean = false, onChanged: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var menu by remember { mutableStateOf(false) }
@@ -131,7 +141,8 @@ private fun XCard(vm: AppViewModel, p: XPost, onAnalyze: () -> Unit, onChanged: 
     var status by remember { mutableStateOf("") }
     fun open(url: String) = runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
 
-    Column(Modifier.fillMaxWidth().background(SideCarColors.Panel).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(Modifier.fillMaxWidth().background(SideCarColors.Panel)
+        .then(if (highlighted) Modifier.border(3.dp, SideCarColors.Amber) else Modifier).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text("${p.author}  @${p.username}" + if (p.repost) "  ·  repost" else "", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(p.text, fontSize = 14.sp, maxLines = 6, overflow = TextOverflow.Ellipsis)
         Text("${p.likes} likes · ${p.reposts} reposts · ${p.replies} replies", fontSize = 12.sp, color = SideCarColors.Muted)
@@ -224,6 +235,7 @@ fun BriefingBarFor(
     prepare: suspend () -> Unit,
     clear: suspend () -> Unit,
     interrupt: suspend (Double, (String) -> Unit) -> String,
+    onNow: (List<String>) -> Unit = {},
     onChanged: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -242,6 +254,9 @@ fun BriefingBarFor(
         var n = 0
         while (playing) { position = player?.currentPosition ?: 0; if (++n % 6 == 0) app.sidecarmonitor.data.PlaybackMemory.save(context, memoryKey, position); delay(500) }
     }
+    // Follow the briefing: which post(s) it's talking about now (also when paused or after a seek).
+    LaunchedEffect(position, player) { onNow(if (player != null) podcast.postsAt(position / 1000.0) else emptyList()) }
+    DisposableEffect(Unit) { onDispose { onNow(emptyList()) } }
     val ready = podcast.status == "ready" && !podcast.cleared
 
     suspend fun load(): android.media.MediaPlayer? {

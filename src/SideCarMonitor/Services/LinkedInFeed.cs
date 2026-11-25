@@ -170,6 +170,10 @@ public sealed class LinkedInFeed
             .OrderByDescending(s => s.Suppressed).ThenByDescending(s => s.Noise).ThenBy(s => s.Author)
             .ToList();
 
+    /// <summary>The posts the briefing is talking about at <paramref name="seconds"/> (empty for the intro or bottom line).</summary>
+    public IReadOnlyList<string> PostsAt(double seconds) =>
+        State.PodcastSegments.LastOrDefault(s => s.Start <= seconds + 0.3)?.PostIds ?? [];
+
     public IEnumerable<LiPost> Signal => State.Posts.Values.Where(p => p.IsSignal && !p.FromProfile && !p.Cleared).OrderByDescending(p => p.FirstSeen).ThenByDescending(p => p.Score);
     public IEnumerable<LiPost> Noise => State.Posts.Values.Where(p => !p.IsSignal && !p.FromProfile && !p.Cleared).OrderByDescending(p => p.FirstSeen);
 

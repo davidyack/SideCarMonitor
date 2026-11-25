@@ -86,6 +86,14 @@ public sealed partial class LinkedInPage : UserControl
             UpdateSubtitleNote();
             return;
         }
+        // While a briefing plays: the post(s) it's talking about right now, pinned at the top.
+        if (_nowIds.Count > 0 && _tab is "signal" or "noise")
+        {
+            PostsPanel.Children.Add(new TextBlock { Text = "\u25B6  Now discussing", FontSize = Font("FontCaption"), FontWeight = FontWeights.SemiBold, Foreground = Res<Brush>("TileAmber") });
+            foreach (var id in _nowIds)
+                if (_feed.State.Posts.TryGetValue(id, out var np)) PostsPanel.Children.Add(PostCard(np, compact: true));
+            PostsPanel.Children.Add(new Border { Height = 2, Background = Res<Brush>("PanelBorder"), Margin = new Thickness(0, 4, 0, 4) });
+        }
         var list = _tab == "signal" ? signal : noise;
         foreach (var p in list.Take(60)) PostsPanel.Children.Add(PostCard(p));
         if (list.Count == 0)
@@ -125,10 +133,12 @@ public sealed partial class LinkedInPage : UserControl
             buttons.Children.Add(Action("Open", "PanelBorder", () => OpenInBrowser(p.Link)));
         body.Children.Add(buttons);
 
+        var now = _nowIds.Contains(p.Id);
         return new Border
         {
             Child = body, Padding = Res<Thickness>("PanelPadding"), CornerRadius = Res<CornerRadius>("SmallCorner"),
             Background = Res<Brush>("PanelBackground"),
+            BorderBrush = now ? Res<Brush>("TileAmber") : null, BorderThickness = new Thickness(now ? 3 : 0),
         };
     }
 
@@ -302,13 +312,26 @@ public sealed partial class LinkedInPage : UserControl
         RenderBriefingBar();
     }
 
-    private void Clock_Tick(object? sender, object e) { if (Visibility == Visibility.Visible) RenderBriefingBar(); }
+    private IReadOnlyList<string> _nowIds = [];
+
+    private void Clock_Tick(object? sender, object e)
+    {
+        if (Visibility != Visibility.Visible) return;
+        RenderBriefingBar();
+        // Follow the briefing: when it moves to another post, show and outline that post.
+        var ids = _player is { } pl && _feed is { } f ? f.PostsAt(pl.PlaybackSession.Position.TotalSeconds) : [];
+        if (ids.SequenceEqual(_nowIds)) return;
+        _nowIds = ids;
+        Render(keepScroll: false);
+        ListScroll.ChangeView(null, 0, null, disableAnimation: false);
+    }
 
     private void StopBriefing()
     {
         _player?.Pause();
         _player?.Dispose(); // let go of the file
         _player = null;
+        _nowIds = [];
         _clock?.Stop();
     }
 

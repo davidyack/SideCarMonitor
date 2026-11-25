@@ -121,7 +121,8 @@ public sealed class Gateway : IAsyncDisposable
                 signal = x.Signal.Take(60).Select(XPostJson), noise = x.Noise.Take(60).Select(XPostJson), saved = x.SavedPosts.Take(60).Select(XPostJson),
                 listCandidates = x.ListCandidates.Take(25).Select(a => new { a.Name, a.Username, a.Seen, signal = a.Signal + a.YourSignal }),
                 noisy = x.NoisyAccounts.Take(15).Select(a => new { a.Id, a.Name, a.Username, a.Seen, noise = a.Seen - a.Signal }),
-                podcast = new { status = s.PodcastStatus, at = s.PodcastAt, seconds = Math.Round(s.PodcastSeconds), posts = s.PodcastPostIds.Count, cleared = s.PodcastCleared, candidates = x.PodcastCandidates, hasNews = x.PodcastHasNews },
+                podcast = new { status = s.PodcastStatus, at = s.PodcastAt, seconds = Math.Round(s.PodcastSeconds), posts = s.PodcastPostIds.Count, cleared = s.PodcastCleared, candidates = x.PodcastCandidates, hasNews = x.PodcastHasNews,
+                    segments = s.PodcastSegments.Select(g => new { start = g.Start, posts = g.PostIds }) },
             });
         });
         app.MapPost("/api/x/update", () => { if (X is { } x && !x.Busy) _ = Task.Run(x.UpdateAsync); return Results.Ok(new { ok = true }); });
@@ -296,6 +297,7 @@ public sealed class Gateway : IAsyncDisposable
                 {
                     status = s.PodcastStatus, at = s.PodcastAt, seconds = Math.Round(s.PodcastSeconds), posts = s.PodcastPostIds.Count,
                     cleared = s.PodcastCleared, candidates = li.PodcastCandidates, hasNews = li.PodcastHasNews,
+                    segments = s.PodcastSegments.Select(g => new { start = g.Start, posts = g.PostIds }),
                 },
             });
         });
