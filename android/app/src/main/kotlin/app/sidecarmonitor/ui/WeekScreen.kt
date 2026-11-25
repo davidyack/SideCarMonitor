@@ -152,22 +152,20 @@ fun WeekScreen(
     @Composable
     fun DayTasks(zone: DropZone, tasks: List<TaskRow>, emptyText: String) {
         val open = dragging == null || expanded == zone.key
-        if (!open) {
-            // Collapsed while dragging: a count, plus the task you're holding (it has to stay on screen).
-            Text(if (tasks.isEmpty()) "Empty" else "${tasks.size} task${if (tasks.size == 1) "" else "s"}",
-                fontSize = 13.sp, color = SideCarColors.Muted, modifier = Modifier.padding(top = 2.dp))
-            tasks.filter { it.id == dragging?.id }.forEach { t ->
-                key(t.id) { TaskLine(t, dragging, onToggleDone, onOpen, startDrag, { dragDelta += it }, endDrag) { id, b -> rows[id] = b } }
-            }
-            return
-        }
-        if (tasks.isEmpty()) Text(emptyText, color = SideCarColors.Muted, fontSize = 14.sp, modifier = Modifier.padding(vertical = 8.dp))
-        val dropAt = if (dragging != null && hovered == zone && zone.accepts) insertIndex(zone.key) else -1
+        // Collapsed while dragging: just a count. Every row is drawn from this one loop either way, so the row
+        // you're holding stays the same element as days collapse and open (otherwise the drag would be cancelled).
+        if (!open) Text(if (tasks.isEmpty()) "Empty" else "${tasks.size} task${if (tasks.size == 1) "" else "s"}",
+            fontSize = 13.sp, color = SideCarColors.Muted, modifier = Modifier.padding(top = 2.dp))
+        else if (tasks.isEmpty()) Text(emptyText, color = SideCarColors.Muted, fontSize = 14.sp, modifier = Modifier.padding(vertical = 8.dp))
+        val dropAt = if (open && dragging != null && hovered == zone && zone.accepts) insertIndex(zone.key) else -1
         var shown = 0
         tasks.forEach { t ->
-            if (t.id != dragging?.id && shown == dropAt) DropLine()
-            key(t.id) { TaskLine(t, dragging, onToggleDone, onOpen, startDrag, { dragDelta += it }, endDrag) { id, b -> rows[id] = b } }
-            if (t.id != dragging?.id) shown++
+            val held = t.id == dragging?.id
+            if (!held && shown == dropAt) DropLine()
+            key(t.id) {
+                if (open || held) TaskLine(t, dragging, onToggleDone, onOpen, startDrag, { dragDelta += it }, endDrag) { id, b -> rows[id] = b }
+            }
+            if (!held) shown++
         }
         if (dropAt >= 0 && dropAt == shown) DropLine()
     }
