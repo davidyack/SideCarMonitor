@@ -1,6 +1,7 @@
 package app.sidecarmonitor
 
 import app.sidecarmonitor.data.Outbox
+import app.sidecarmonitor.data.OfflineCache
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -89,6 +90,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         Outbox.init(app)
+        OfflineCache.init(app)
         store.load()?.let { usePairing(it) }
         viewModelScope.launch { Outbox.items.collect { items -> _state.update { it.copy(outbox = items) } } }
         // Replies to queued messages: into the chat (the question bubble stops showing "waiting").
@@ -164,7 +166,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val c = client ?: return
         try {
             if (!_state.value.connected && !c.connect()) {
-                _state.update { it.copy(connected = false, lastError = "Can't reach the kiosk") }
+                // Out of reach: still show the last saved status and to-dos instead of blanks.
+                val s = runCatching { c.status() }.getOrNull()
+                val tasks = runCatching { c.tasks() }.getOrNull()
+                _state.update { it.copy(connected = false, lastError = "Can't reach the kiosk", status = s ?: it.status, tasks = tasks ?: it.tasks) }
                 return
             }
             val s = c.status()

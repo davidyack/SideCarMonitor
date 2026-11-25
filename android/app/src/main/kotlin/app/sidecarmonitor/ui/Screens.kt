@@ -53,6 +53,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -110,6 +111,13 @@ fun HomeScreen(state: UiState, vm: app.sidecarmonitor.AppViewModel, onOpen: (Scr
     LaunchedEffect(state.connected) { while (true) { runCatching { vm.kiosk?.ideas("all") }.getOrNull()?.let { ideas = it }; delay(300_000) } }
 
     Column(Modifier.fillMaxSize().verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Short outage: say the data is a saved copy (and from when), instead of going blank.
+        val savedAt by app.sidecarmonitor.data.OfflineCache.staleSince.collectAsState()
+        savedAt?.let { at ->
+            val time = java.time.Instant.ofEpochMilli(at).atZone(java.time.ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("h:mm a"))
+            Text("Kiosk out of reach \u00B7 showing saved data from $time", Modifier.fillMaxWidth().background(SideCarColors.Panel).padding(12.dp),
+                fontSize = 14.sp, color = SideCarColors.Amber)
+        }
         OutboxBanner(state.outbox, onRetry = vm::flushOutbox, onApprove = vm::approveOutbox, onDiscard = vm::discardOutbox)
         BriefCard(vm)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

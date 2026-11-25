@@ -207,6 +207,8 @@ class SideCarClient(private val pairing: Pairing) {
             .addInterceptor { chain ->
                 chain.proceed(chain.request().newBuilder().header("Authorization", "Bearer ${pairing.key}").build())
             }
+            // Short outages: reads fall back to the last saved copy instead of failing (see OfflineCache).
+            .addInterceptor(OfflineCache.interceptor)
             .build()
     }
 
