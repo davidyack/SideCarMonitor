@@ -1,5 +1,6 @@
 package app.sidecarmonitor
 
+import app.sidecarmonitor.data.Outbox
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -32,7 +33,9 @@ import kotlinx.coroutines.withTimeout
 
 enum class AssistantState { Idle, Connecting, Listening, Thinking, Speaking }
 
-data class ChatLine(val fromUser: Boolean, val text: String, val tools: List<String> = emptyList(), val error: Boolean = false)
+data class ChatLine(val fromUser: Boolean, val text: String, val tools: List<String> = emptyList(), val error: Boolean = false,
+                    /** Set while the message waits in the outbox (the kiosk was out of reach). */
+                    val outboxId: String? = null)
 
 data class UiState(
     val paired: Boolean = false,
@@ -45,6 +48,8 @@ data class UiState(
     val assistantNote: String = "Tap Talk, or type below",
     /** Voice mode in the chat: listen, answer out loud, listen again. Typed chats aren't spoken. */
     val voiceMode: Boolean = false,
+    /** Writes and messages waiting to reach the kiosk (see Outbox). */
+    val outbox: List<Outbox.Item> = emptyList(),
     val micLevel: Float = 0f,
     val lines: List<ChatLine> = emptyList(),
     val tasks: TasksPayload? = null,
@@ -83,7 +88,39 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val state: StateFlow<UiState> = _state.asStateFlow()
 
     init {
+        Outbox.init(app)
         store.load()?.let { usePairing(it) }
+        viewModelScope.launch { Outbox.items.collect { items -> _state.update { it.copy(outbox = items) } } }
+        // Replies to queued messages: into the chat (the question bubble stops showing "waiting").
+        viewModelScope.launch { Outbox.answered.collect(::onAnswer) }
+        Outbox.consumeAnswers().forEach(::onAnswer)
+        // Network back: send whatever is waiting.
+        val cm = app.getSystemService(android.net.ConnectivityManager::class.java)
+        cm?.registerDefaultNetworkCallback(object : android.net.ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: android.net.Network) { flushOutbox() }
+        })
+    }
+
+    /** Sends whatever is waiting in the outbox (on network back, app open, Retry now). */
+    fun flushOutbox() {
+        viewModelScope.launch {
+            val c = client ?: return@launch
+            if (Outbox.items.value.isEmpty()) return@launch
+            runCatching { c.connect(); Outbox.flush(c) }
+        }
+    }
+
+    fun approveOutbox(id: String) { Outbox.approve(id); flushOutbox() }
+    fun discardOutbox(id: String) {
+        Outbox.discard(id)
+        _state.update { s -> s.copy(lines = s.lines.map { if (it.outboxId == id) it.copy(text = it.text + "  (not sent)", outboxId = null) else it }) }
+    }
+
+    private fun onAnswer(a: Outbox.Answer) = _state.update { s ->
+        val lines = s.lines.map { if (it.outboxId == a.id) it.copy(text = if (it.text.startsWith("\uD83C\uDFA4")) a.question else it.text, outboxId = null) else it }.toMutableList()
+        if (lines.none { it.fromUser && it.text == a.question }) lines += ChatLine(true, a.question)
+        lines += ChatLine(false, a.reply)
+        s.copy(lines = lines.takeLast(40))
     }
 
     // ---- Pairing ----------------------------------------------------------------------------
@@ -337,7 +374,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     return@launch
                 }
                 setAssistant(AssistantState.Thinking, "Thinking…")
-                val heard = c.listen(wav)
+                val heard = try { c.listen(wav) } catch (e: java.io.IOException) {
+                    // Out of reach: keep the recording; it's transcribed and answered when the kiosk is back.
+                    val item = Outbox.queueAsk("", Outbox.saveAudio(wav))
+                    addLine(ChatLine(true, "\uD83C\uDFA4 Voice message", outboxId = item.id))
+                    voiceConversation = false
+                    _state.update { it.copy(voiceMode = false) }
+                    setAssistant(AssistantState.Idle, "Waiting to send: the kiosk is out of reach")
+                    return@launch
+                }
                 if (heard.isBlank()) { voiceConversation = false; setAssistant(AssistantState.Idle, "Didn't catch that. Tap Talk to try again."); return@launch }
                 if (followUp && isEndPhrase(heard)) {
                     voiceConversation = false
@@ -363,11 +408,18 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Dictation for text fields (notes, answers): record, transcribe on the kiosk, return the words ("" if none). */
-    suspend fun dictate(onLevel: (Float) -> Unit = {}): String {
+    suspend fun dictate(taskId: String? = null, onLevel: (Float) -> Unit = {}): String {
         val c = client ?: return ""
         val wav = recorder.record(onLevel = onLevel)
         if (wav.isEmpty()) return ""
-        return runCatching { c.listen(wav) }.getOrDefault("")
+        return try { c.listen(wav) } catch (e: java.io.IOException) {
+            // Out of reach: the recording is kept and added to this to-do as a note when the kiosk is back.
+            if (taskId != null) {
+                Outbox.queueVoiceNote(taskId, Outbox.saveAudio(wav))
+                _state.update { it.copy(taskMessage = "Saved your recording. It'll be added as a note when the kiosk is back in reach.") }
+            }
+            ""
+        }
     }
 
     fun stopDictation() = recorder.stop()
@@ -405,7 +457,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         replyDone = CompletableDeferred()
         // If you're looking at a task, "it" means that task.
         val context = _state.value.openTask?.row?.let { "[Context: the user is looking at task ${it.id} \"${it.title}\"]\n" } ?: ""
-        if (!connection.sendWhenOpen(context + text)) { chatJob?.cancel(); chat = null; throw IllegalStateException("Couldn't reach the kiosk. Check Tailscale, then try again.") }
+        if (!connection.sendWhenOpen(context + text)) {
+            // Out of reach: the message waits in the outbox and is answered when the kiosk is back.
+            chatJob?.cancel(); chat = null
+            val item = Outbox.queueAsk(context + text)
+            _state.update { s ->
+                val lines = s.lines.toMutableList()
+                val i = lines.indexOfLast { it.fromUser && it.text == text }
+                if (i >= 0) lines[i] = lines[i].copy(outboxId = item.id)
+                s.copy(lines = lines)
+            }
+            setAssistant(AssistantState.Idle, "Waiting to send: the kiosk is out of reach")
+            return
+        }
 
         coroutineScope {
             // Speak while the reply is still streaming: each finished sentence is synthesized by the kiosk

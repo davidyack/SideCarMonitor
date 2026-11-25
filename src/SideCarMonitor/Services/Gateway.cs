@@ -82,6 +82,7 @@ public sealed class Gateway : IAsyncDisposable
         _app = builder.Build();
         _app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(20) });
         _app.Use(RequireKey);
+        _app.Use(IdempotencyCache.Middleware); // phone outbox retries run once
         Map(_app);
         await _app.StartAsync();
     }
@@ -441,6 +442,20 @@ public sealed class Gateway : IAsyncDisposable
         MapCalendar(app);
         MapBriefs(app);
         MapMeetingsAndWeather(app);
+        // A chat message the phone queued while it couldn't reach the kiosk: one user turn, the reply returned.
+        app.MapPost("/api/ask", async (JsonObject b) =>
+        {
+            if (_deps.Agent is not { } agent) return Results.Json(new { error = "The assistant isn't running." }, statusCode: 503);
+            var text = b["text"]?.GetValue<string>()?.Trim() ?? "";
+            if (text.Length == 0) return Results.BadRequest(new { error = "Empty message" });
+            try
+            {
+                await agent.EnsureStartedAsync();
+                var reply = await agent.AskAsync(text, "phone-", TimeSpan.FromMinutes(4), fromUser: true, userText: text);
+                return Results.Json(new { reply });
+            }
+            catch (Exception ex) { return Results.Json(new { error = ex.Message }, statusCode: 503); }
+        });
         app.MapPost("/api/activity/clear", () => { ClearActivity?.Invoke(); return Results.Ok(new { ok = true }); });
 
         // Speech-to-text: body is 16 kHz, 16-bit, mono PCM WAV recorded on the phone or watch.

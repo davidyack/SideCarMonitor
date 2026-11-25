@@ -230,12 +230,70 @@ class SideCarClient(private val pairing: Pairing) {
         call(Request.Builder().url("$base/api/home").build()).use { json.decodeFromString(it.body.string()) }
     }
 
-    /** Posts a small JSON body to the kiosk; returns the error text, or null when it worked. */
-    private suspend fun postJson(path: String, body: kotlinx.serialization.json.JsonObject): String? = withContext(Dispatchers.IO) {
-        val req = Request.Builder().url("$base$path")
-            .post(body.toString().toRequestBody("application/json".toMediaType())).build()
-        runCatching { call(req).use { null } }.getOrElse { it.message ?: "Failed" }
+    /**
+     * Any write to the kiosk goes through the outbox: saved first, sent with an Idempotency-Key, kept and retried if
+     * the kiosk can't be reached. Returns null when it was sent or is waiting to send, or the kiosk's reason when it
+     * refused.
+     */
+    private suspend fun postJson(path: String, body: kotlinx.serialization.json.JsonObject): String? =
+        Outbox.post(this, path, body.toString(), labelFor(path))
+
+    /** One attempt at a write: Sent, Offline (retry later) or Refused (the kiosk said no; don't retry). */
+    suspend fun postRaw(path: String, body: String, key: String): Outbox.Result = withContext(Dispatchers.IO) {
+        val req = Request.Builder().url("$base$path").header("Idempotency-Key", key)
+            .post(body.toRequestBody("application/json".toMediaType())).build()
+        try {
+            client.newCall(req).execute().use { r ->
+                val text = r.body.string()
+                when {
+                    r.isSuccessful -> Outbox.Result.Sent(text)
+                    r.code >= 500 || r.code == 408 || r.code == 429 -> Outbox.Result.Offline("Kiosk returned HTTP ${r.code}")
+                    else -> Outbox.Result.Refused(runCatching { json.parseToJsonElement(text).jsonObject["error"]?.jsonPrimitive?.content }.getOrNull()
+                        ?: "The kiosk refused it (HTTP ${r.code})")
+                }
+            }
+        } catch (e: java.io.IOException) { Outbox.Result.Offline(e.message ?: "Can't reach the kiosk") }
     }
+
+    /** A queued chat message, answered as one turn (no live connection needed). Throws IOException to retry later. */
+    suspend fun ask(text: String, key: String): String = withContext(Dispatchers.IO) {
+        val body = buildJsonObject { put("text", text) }.toString()
+        when (val r = postRaw("/api/ask", body, key)) {
+            is Outbox.Result.Sent -> json.parseToJsonElement(r.body).jsonObject["reply"]?.jsonPrimitive?.content ?: ""
+            is Outbox.Result.Offline -> throw java.io.IOException(r.reason)
+            is Outbox.Result.Refused -> throw IllegalStateException(r.reason)
+        }
+    }
+
+    private fun labelFor(path: String) = when {
+        path.startsWith("/api/tasks") -> "To-do change"
+        path.startsWith("/api/reminders") -> "Reminder"
+        path.startsWith("/api/home") -> "House control"
+        path.startsWith("/api/linkedin") -> "LinkedIn action"
+        path.startsWith("/api/x") -> "X action"
+        path.startsWith("/api/ideas") -> "Idea action"
+        path.startsWith("/api/calendar") -> "Calendar change"
+        path.startsWith("/api/brief") -> "Brief"
+        path.startsWith("/api/activity") -> "Activity"
+        else -> "Change"
+    }
+
+    /** A task write: sent with a key; if the kiosk can't be reached it's kept in the outbox and this throws [Queued]. */
+    private fun taskPost(path: String, body: String, label: String, expectTask: Boolean): TaskDetail? {
+        val key = Outbox.newId()
+        val req = Request.Builder().url("$base$path").header("Idempotency-Key", key)
+            .post(body.toRequestBody("application/json".toMediaType())).build()
+        try {
+            if (!expectTask) { client.newCall(req).execute().close(); return null }
+            return callOrRule(req)
+        } catch (e: java.io.IOException) {
+            Outbox.queuePost(path, body, label, key)
+            throw Queued()
+        }
+    }
+
+    /** The action is saved on the phone and will reach the kiosk when it's back in reach. */
+    class Queued : IllegalStateException("Saved. It'll go to the kiosk as soon as it's back in reach.")
 
     suspend fun linkedIn(): LinkedInInfo = withContext(Dispatchers.IO) {
         call(Request.Builder().url("$base/api/linkedin").build()).use { json.decodeFromString(it.body.string()) }
@@ -253,8 +311,14 @@ class SideCarClient(private val pairing: Pairing) {
     suspend fun linkedInPodcastInterrupt(text: String, positionSeconds: Double): String = withContext(Dispatchers.IO) {
         val body = buildJsonObject { put("text", text); put("position", positionSeconds) }.toString()
             .toRequestBody("application/json".toMediaType())
-        call(Request.Builder().url("$base/api/linkedin/podcast/tag").post(body).build()).use {
-            json.parseToJsonElement(it.body.string()).jsonObject["reply"]?.jsonPrimitive?.content ?: "Saved"
+        val key = Outbox.newId()
+        try {
+            call(Request.Builder().url("$base/api/linkedin/podcast/tag").header("Idempotency-Key", key).post(body).build()).use {
+                json.parseToJsonElement(it.body.string()).jsonObject["reply"]?.jsonPrimitive?.content ?: "Saved"
+            }
+        } catch (e: java.io.IOException) {
+            Outbox.queuePost("/api/linkedin/podcast/tag", buildJsonObject { put("text", text); put("position", positionSeconds) }.toString(), "LinkedIn tag", key)
+            "Tag saved; it'll reach the kiosk when it's back in reach"
         }
     }
 
@@ -290,8 +354,14 @@ class SideCarClient(private val pairing: Pairing) {
     suspend fun xPodcastAudio(): ByteArray = withContext(Dispatchers.IO) { call(Request.Builder().url("$base/api/x/podcast/audio").build()).use { it.body.bytes() } }
     suspend fun xPodcastInterrupt(text: String, positionSeconds: Double): String = withContext(Dispatchers.IO) {
         val body = buildJsonObject { put("text", text); put("position", positionSeconds) }.toString().toRequestBody("application/json".toMediaType())
-        call(Request.Builder().url("$base/api/x/podcast/tag").post(body).build()).use {
-            json.parseToJsonElement(it.body.string()).jsonObject["reply"]?.jsonPrimitive?.content ?: "Saved"
+        val key = Outbox.newId()
+        try {
+            call(Request.Builder().url("$base/api/x/podcast/tag").header("Idempotency-Key", key).post(body).build()).use {
+                json.parseToJsonElement(it.body.string()).jsonObject["reply"]?.jsonPrimitive?.content ?: "Saved"
+            }
+        } catch (e: java.io.IOException) {
+            Outbox.queuePost("/api/x/podcast/tag", buildJsonObject { put("text", text); put("position", positionSeconds) }.toString(), "X tag", key)
+            "Tag saved; it'll reach the kiosk when it's back in reach"
         }
     }
 
@@ -374,8 +444,7 @@ class SideCarClient(private val pairing: Pairing) {
 
     suspend fun addTask(title: String, pinToday: Boolean): TaskDetail = withContext(Dispatchers.IO) {
         val body = buildJsonObject { put("title", title); put("pinToday", pinToday) }.toString()
-            .toRequestBody("application/json".toMediaType())
-        callOrRule(Request.Builder().url("$base/api/tasks").post(body).build())
+        taskPost("/api/tasks", body, "New to-do: ${title.take(40)}", expectTask = true)!!
     }
 
     /** Any task action: done, reopen, pin, unpin, help_on, help_off, drop_date, resume, accept, dismiss,
@@ -393,11 +462,8 @@ class SideCarClient(private val pairing: Pairing) {
                         else -> put(k, v.toString())
                     }
                 }
-            }.toString().toRequestBody("application/json".toMediaType())
-            if (action == "take_pass") {
-                call(Request.Builder().url("$base/api/tasks/$id/action").post(body).build()).close()
-                null
-            } else callOrRule(Request.Builder().url("$base/api/tasks/$id/action").post(body).build())
+            }.toString()
+            taskPost("/api/tasks/$id/action", body, "To-do: ${action.replace('_', ' ')}", expectTask = action != "take_pass")
         }
 
     /** Returns the task, or throws with the kiosk's reason (e.g. "This task changed since you opened it"). */

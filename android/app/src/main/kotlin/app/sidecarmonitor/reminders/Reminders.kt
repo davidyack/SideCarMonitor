@@ -122,7 +122,10 @@ class ReminderActionReceiver : BroadcastReceiver() {
         val pending = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val error = Reminders.client(context)?.reminderAction(id, action, minutes) ?: "Can't reach the kiosk"
+                // Never lost: if the kiosk is out of reach the action waits in the outbox and goes when it's back.
+                app.sidecarmonitor.data.Outbox.init(context)
+                val pairing = PairingStore(context).load()
+                val error = if (pairing == null) "The phone isn't paired" else SideCarClient(pairing).also { it.connect() }.reminderAction(id, action, minutes)
                 if (error == null) NotificationManagerCompat.from(context).cancel(Reminders.notificationId(id))
                 else Reminders.post(context, id, "Couldn't update the reminder", error)
             } finally {

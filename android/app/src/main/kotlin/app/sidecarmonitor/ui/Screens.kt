@@ -110,6 +110,7 @@ fun HomeScreen(state: UiState, vm: app.sidecarmonitor.AppViewModel, onOpen: (Scr
     LaunchedEffect(state.connected) { while (true) { runCatching { vm.kiosk?.ideas("all") }.getOrNull()?.let { ideas = it }; delay(300_000) } }
 
     Column(Modifier.fillMaxSize().verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutboxBanner(state.outbox, onRetry = vm::flushOutbox, onApprove = vm::approveOutbox, onDiscard = vm::discardOutbox)
         BriefCard(vm)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Tile(if (meetingSoon) SideCarColors.Amber else SideCarColors.Panel, Modifier.weight(1f).aspectRatio(1f), onClick = { onOpen(Screen.Day) }) {
@@ -435,6 +436,31 @@ fun BigButton(text: String, icon: ImageVector, color: Color, onClick: () -> Unit
     Button(onClick = onClick, Modifier.fillMaxWidth().height(64.dp), shape = RoundedCornerShape(6.dp),
         colors = ButtonDefaults.buttonColors(containerColor = color, contentColor = Color.White)) {
         Icon(icon, null, Modifier.size(26.dp)); Spacer(Modifier.width(12.dp)); Text(text, fontSize = 18.sp)
+    }
+}
+
+// ---- Outbox: what's waiting to reach the kiosk -------------------------------------------------
+
+/** "2 waiting to send" with Retry now; a message over an hour old asks Send / Discard; refused items show why. */
+@Composable
+fun OutboxBanner(items: List<app.sidecarmonitor.data.Outbox.Item>, onRetry: () -> Unit, onApprove: (String) -> Unit, onDiscard: (String) -> Unit) {
+    if (items.isEmpty()) return
+    val waiting = items.filter { it.status == "waiting" || it.status == "approved" }
+    Column(Modifier.fillMaxWidth().background(SideCarColors.Panel).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (waiting.isNotEmpty()) Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("\u23F1 ${waiting.size} waiting to send", Modifier.weight(1f), fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            Text("Retry now", Modifier.background(SideCarColors.Cobalt).clickable(onClick = onRetry).padding(horizontal = 14.dp, vertical = 10.dp), fontSize = 14.sp)
+        }
+        if (waiting.isNotEmpty()) Text(waiting.take(3).joinToString(" \u00B7 ") { it.label } + if (waiting.size > 3) " \u2026" else "",
+            fontSize = 13.sp, color = SideCarColors.Muted, maxLines = 2)
+        items.filter { it.status == "confirm" || it.status == "failed" }.forEach { item ->
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(if (item.status == "confirm") "${item.label} \u00B7 written over an hour ago" else "Couldn't send ${item.label}: ${item.error}",
+                    Modifier.weight(1f), fontSize = 13.sp, color = if (item.status == "failed") SideCarColors.Alert else SideCarColors.Amber, maxLines = 2)
+                if (item.status == "confirm") Text("Send", Modifier.background(SideCarColors.Cobalt).clickable { onApprove(item.id) }.padding(horizontal = 12.dp, vertical = 8.dp), fontSize = 13.sp)
+                Text("Discard", Modifier.background(SideCarColors.Steel).clickable { onDiscard(item.id) }.padding(horizontal = 12.dp, vertical = 8.dp), fontSize = 13.sp)
+            }
+        }
     }
 }
 

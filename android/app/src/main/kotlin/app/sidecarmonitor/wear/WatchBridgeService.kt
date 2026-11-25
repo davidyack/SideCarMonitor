@@ -43,6 +43,13 @@ class WatchBridgeService : WearableListenerService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val json = Json { ignoreUnknownKeys = true }
 
+    /** For writes: never fails just because the kiosk is out of reach (the outbox keeps it). */
+    private suspend fun writeClient(): SideCarClient {
+        app.sidecarmonitor.data.Outbox.init(this)
+        val pairing = PairingStore(this).load() ?: throw IllegalStateException("Pair the SideCar phone app with the kiosk first")
+        return SideCarClient(pairing).also { it.connect() }
+    }
+
     private suspend fun client(): SideCarClient {
         val pairing = PairingStore(this).load() ?: throw IllegalStateException("Pair the SideCar phone app with the kiosk first")
         return SideCarClient(pairing).also { if (!it.connect()) throw IllegalStateException("Can't reach the kiosk") }
@@ -54,10 +61,10 @@ class WatchBridgeService : WearableListenerService() {
                 when (path) {
                     WatchPaths.HOME -> home(client())
                     WatchPaths.TASK_DONE -> {
-                        val c = client()
+                        val c = writeClient()
                         val id = json.parseToJsonElement(request.decodeToString()).jsonObject["id"]?.jsonPrimitive?.content ?: ""
-                        c.taskActionById(id, "done")
-                        home(c)
+                        try { c.taskActionById(id, "done"); home(c) }
+                        catch (e: SideCarClient.Queued) { buildJsonObject { put("error", "Saved on your phone; it'll be marked done when the kiosk is back") }.toString() }
                     }
                     WatchPaths.EVENT_PICTURE -> {
                         val o = json.parseToJsonElement(request.decodeToString()).jsonObject
@@ -66,7 +73,12 @@ class WatchBridgeService : WearableListenerService() {
                     }
                     WatchPaths.ASK -> {
                         val text = json.parseToJsonElement(request.decodeToString()).jsonObject["text"]?.jsonPrimitive?.content ?: ""
-                        buildJsonObject { put("reply", askOnce(client(), text)) }.toString()
+                        try { buildJsonObject { put("reply", askOnce(client(), text)) }.toString() }
+                        catch (e: Exception) {
+                            app.sidecarmonitor.data.Outbox.init(this@WatchBridgeService)
+                            app.sidecarmonitor.data.Outbox.queueAsk(text)
+                            buildJsonObject { put("reply", "Saved. I'll answer on your phone when the kiosk is back in reach.") }.toString()
+                        }
                     }
                     else -> buildJsonObject { put("error", "Unknown request $path") }.toString()
                 }
@@ -85,8 +97,14 @@ class WatchBridgeService : WearableListenerService() {
             var audio = ByteArray(0)
             try {
                 val wav = channels.getInputStream(channel).await().use { it.readBytes() }
-                val c = client()
-                heard = c.listen(wav)
+                val c = writeClient()
+                heard = try { c.listen(wav) } catch (e: java.io.IOException) {
+                    // Out of reach: keep the recording; it's transcribed and answered on the phone when the kiosk is back.
+                    app.sidecarmonitor.data.Outbox.queueAsk("", app.sidecarmonitor.data.Outbox.saveAudio(wav))
+                    reply = "Saved. I'll answer on your phone when the kiosk is back in reach."
+                    ""
+                }
+                if (reply.isNotEmpty()) { /* queued */ } else
                 if (heard.isBlank()) error = "Didn't catch that"
                 else {
                     reply = askOnce(c, heard)

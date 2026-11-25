@@ -84,6 +84,8 @@ fun ChatScreen(
     onStop: () -> Unit,
     onNewChat: () -> Unit,
     onClose: () -> Unit,
+    onApprove: (String) -> Unit = {},
+    onDiscard: (String) -> Unit = {},
 ) {
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -129,7 +131,30 @@ fun ChatScreen(
             }
             itemsIndexed(state.lines) { _, line ->
                 when {
-                    line.fromUser -> UserMessage(line.text)
+                    line.fromUser -> Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        UserMessage(line.text)
+                        line.outboxId?.let { id ->
+                            val item = state.outbox.firstOrNull { it.id == id }
+                            when (item?.status) {
+                                null -> {}
+                                "confirm" -> {
+                                    Text("Written over an hour ago and not sent yet", fontSize = 12.sp, color = SideCarColors.Amber)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("Send now", Modifier.clip(RoundedCornerShape(16.dp)).background(UserBubble).clickable { onApprove(id) }
+                                            .padding(horizontal = 14.dp, vertical = 8.dp), fontSize = 13.sp)
+                                        Text("Discard", Modifier.clip(RoundedCornerShape(16.dp)).background(SideCarColors.Steel).clickable { onDiscard(id) }
+                                            .padding(horizontal = 14.dp, vertical = 8.dp), fontSize = 13.sp)
+                                    }
+                                }
+                                "failed" -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text("Couldn't send: ${item.error}", fontSize = 12.sp, color = Color(0xFFFF9AA2))
+                                    Text("Discard", Modifier.clip(RoundedCornerShape(16.dp)).background(SideCarColors.Steel).clickable { onDiscard(id) }
+                                        .padding(horizontal = 12.dp, vertical = 6.dp), fontSize = 12.sp)
+                                }
+                                else -> Text("\u23F1 Waiting to send \u00B7 goes when the kiosk is back in reach", fontSize = 12.sp, color = SideCarColors.Muted)
+                            }
+                        }
+                    }
                     line.error -> Text("\u26A0 ${line.text}", Modifier.clip(RoundedCornerShape(12.dp)).background(Color(0xFF3A1D22))
                         .padding(horizontal = 12.dp, vertical = 8.dp), fontSize = 14.sp, color = Color(0xFFFF9AA2))
                     else -> AgentMessage(line)

@@ -104,11 +104,11 @@ class MainActivity : ComponentActivity() {
                             Screen.Weather -> WeatherScreen(state, vm) { screen = Screen.Home }
                             Screen.Activity -> ActivityScreen(state, vm::snapshot, vm::eventSnapshot, vm::clearActivity) { screen = Screen.Home }
                             Screen.Tasks ->
-                                if (state.openTask != null) TaskDetailScreen(state, vm::taskAction, dictate = { vm.dictate() }, stopDictate = vm::stopDictation) { vm.closeTask() }
+                                if (state.openTask != null) TaskDetailScreen(state, vm::taskAction, dictate = { vm.dictate(state.openTask?.row?.id) }, stopDictate = vm::stopDictation) { vm.closeTask() }
                                 else TasksScreen(state, onOpen = vm::openTask, onAdd = vm::addTask,
                                     onWeek = { vm.loadWeek(0); screen = Screen.Week }) { screen = Screen.Home }
                             Screen.Week ->
-                                if (state.openTask != null) TaskDetailScreen(state, vm::taskAction, dictate = { vm.dictate() }, stopDictate = vm::stopDictation) { vm.closeTask(); vm.loadWeek() }
+                                if (state.openTask != null) TaskDetailScreen(state, vm::taskAction, dictate = { vm.dictate(state.openTask?.row?.id) }, stopDictate = vm::stopDictation) { vm.closeTask(); vm.loadWeek() }
                                 else WeekScreen(state.week, state.taskMessage, onMove = vm::moveTaskToDay, onToggleDone = vm::toggleDone,
                                     onOpen = vm::openTask, onWeek = vm::shiftWeek) { screen = Screen.Tasks }
                             Screen.House -> HouseScreen(vm) { screen = Screen.Home }
@@ -123,7 +123,8 @@ class MainActivity : ComponentActivity() {
                     if (state.assistantOpen) {
                         app.sidecarmonitor.ui.ChatScreen(state, onSend = vm::sendText,
                             onVoice = { on -> if (on) talk() else vm.setVoiceMode(false) },
-                            onStop = { vm.stopTurn() }, onNewChat = vm::newChat, onClose = vm::closeAssistant)
+                            onStop = { vm.stopTurn() }, onNewChat = vm::newChat, onClose = vm::closeAssistant,
+                            onApprove = vm::approveOutbox, onDiscard = vm::discardOutbox)
                     }
                 }
               }
@@ -131,6 +132,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onStart() { super.onStart(); vm.startPolling() }
+    override fun onStart() { super.onStart(); vm.startPolling(); vm.flushOutbox() }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        if (intent.getBooleanExtra("openChat", false)) vm.openAssistant(startListening = false)
+    }
     override fun onStop() { super.onStop(); vm.stopPolling() }
 }
