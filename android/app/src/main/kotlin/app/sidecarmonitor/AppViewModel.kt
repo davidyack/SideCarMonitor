@@ -32,7 +32,7 @@ import kotlinx.coroutines.withTimeout
 
 enum class AssistantState { Idle, Connecting, Listening, Thinking, Speaking }
 
-data class ChatLine(val fromUser: Boolean, val text: String)
+data class ChatLine(val fromUser: Boolean, val text: String, val tools: List<String> = emptyList())
 
 data class UiState(
     val paired: Boolean = false,
@@ -43,6 +43,8 @@ data class UiState(
     val assistantOpen: Boolean = false,
     val assistant: AssistantState = AssistantState.Idle,
     val assistantNote: String = "Tap Talk, or type below",
+    /** Voice mode in the chat: listen, answer out loud, listen again. Typed chats aren't spoken. */
+    val voiceMode: Boolean = false,
     val micLevel: Float = 0f,
     val lines: List<ChatLine> = emptyList(),
     val tasks: TasksPayload? = null,
@@ -278,10 +280,23 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (startListening) talk()
     }
 
+    /** The chat's mic button: on starts voice mode (or, while listening, means "Done"); off goes back to typing. */
+    fun setVoiceMode(on: Boolean) {
+        if (on) talk()
+        else { stopTurn(); _state.update { it.copy(voiceMode = false) }; setAssistant(AssistantState.Idle, "Ask anything") }
+    }
+
+    /** New chat: the agent wraps up the old one (summary and facts) and the screen starts empty. */
+    fun newChat() {
+        stopTurn()
+        if (_state.value.lines.isNotEmpty()) chat?.endConversation()
+        _state.update { it.copy(lines = emptyList(), voiceMode = false) }
+    }
+
     fun closeAssistant() {
         stopTurn()
         if (_state.value.lines.isNotEmpty()) chat?.endConversation()
-        _state.update { it.copy(assistantOpen = false, assistant = AssistantState.Idle) }
+        _state.update { it.copy(assistantOpen = false, assistant = AssistantState.Idle, voiceMode = false) }
     }
 
     /** Started by voice: after each spoken reply the mic reopens until you go quiet, say "that's all", or tap Stop. */
@@ -303,6 +318,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun talk() {
         if (_state.value.assistant == AssistantState.Listening) { recorder.stop(); return } // "Done"
         voiceConversation = true
+        _state.update { it.copy(voiceMode = true) }
         listenAndRespond(followUp = false)
     }
 
@@ -316,6 +332,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 _state.update { it.copy(micLevel = 0f) }
                 if (wav.isEmpty()) {
                     voiceConversation = false
+                    _state.update { it.copy(voiceMode = false) }
                     setAssistant(AssistantState.Idle, if (followUp) "Tap Talk to continue." else "Didn't catch that. Tap Talk to try again.")
                     return@launch
                 }
@@ -324,6 +341,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 if (heard.isBlank()) { voiceConversation = false; setAssistant(AssistantState.Idle, "Didn't catch that. Tap Talk to try again."); return@launch }
                 if (followUp && isEndPhrase(heard)) {
                     voiceConversation = false
+                    _state.update { it.copy(voiceMode = false) }
                     addLine(ChatLine(true, heard))
                     setAssistant(AssistantState.Idle, "Okay. Tap Talk anytime.")
                     return@launch
@@ -356,6 +374,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun sendText(text: String) {
         if (text.isBlank()) return
         voiceConversation = false
+        _state.update { it.copy(voiceMode = false) }
         stopTurn()
         turnJob = viewModelScope.launch {
             try { respond(text.trim()) } catch (e: Exception) { setAssistant(AssistantState.Idle, e.message ?: "Something went wrong") }
@@ -429,6 +448,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** Queues the newly finished sentences of the streaming reply for speech (all of the rest when [final]). */
     private fun queueSentences(final: Boolean) {
         val q = sentences ?: return
+        if (!_state.value.voiceMode) return // typed chats aren't spoken
         val text = replyText.toString()
         if (spokenUpTo > text.length) return
         var end = spokenUpTo
@@ -473,7 +493,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 upsertReply(e.text)
             }
             "tool" -> if (e.id == replyId) {
-                setAssistant(AssistantState.Thinking, if (e.name == "get_local_weather") "Checking the weather…" else "Working…")
+                val label = toolLabel(e.name ?: "")
+                setAssistant(AssistantState.Thinking, "$label\u2026")
+                _state.update { s ->
+                    val lines = s.lines.toMutableList()
+                    if (lines.isNotEmpty() && !lines.last().fromUser) lines[lines.size - 1] = lines.last().copy(tools = lines.last().tools + label)
+                    else lines += ChatLine(false, "", listOf(label))
+                    s.copy(lines = lines)
+                }
             }
             "idle" -> if (e.id == replyId) replyDone?.complete(replyText.toString())
             "error" -> {
@@ -485,9 +512,22 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** What a tool call looks like in the chat ("Searching the web"). */
+    private fun toolLabel(name: String) = when {
+        name == "web_search" -> "Searching the web"
+        name.startsWith("calendar") -> "Checking your calendars"
+        name.startsWith("task") -> "Looking at your to-dos"
+        name.startsWith("reminder") -> "Working on reminders"
+        name.startsWith("home") -> "Talking to the house"
+        name.contains("weather") -> "Checking the weather"
+        name == "flight_search" -> "Searching flights"
+        name.contains("camera") || name.contains("event") -> "Checking the cameras"
+        else -> "Working"
+    }
+
     private fun upsertReply(text: String) = _state.update { s ->
         val lines = s.lines.toMutableList()
-        if (lines.isNotEmpty() && !lines.last().fromUser) lines[lines.size - 1] = ChatLine(false, text)
+        if (lines.isNotEmpty() && !lines.last().fromUser) lines[lines.size - 1] = lines.last().copy(text = text)
         else lines += ChatLine(false, text)
         s.copy(lines = lines)
     }

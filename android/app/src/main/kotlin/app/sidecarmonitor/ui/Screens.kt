@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Groups
@@ -150,7 +151,7 @@ fun HomeScreen(state: UiState, vm: app.sidecarmonitor.AppViewModel, onOpen: (Scr
             Tile(Color(0xFF2F3640), Modifier.weight(1f).aspectRatio(1f), onClick = { onOpen(Screen.X) },
                 icon = null, value = "\uD835\uDD4F", detail = "Signal", label = "X")
             Tile(SideCarColors.Mauve, Modifier.weight(1f).aspectRatio(1f), onClick = onTalk,
-                icon = Icons.Filled.Mic, value = "", detail = "Ask anything", label = "SideCar")
+                icon = Icons.AutoMirrored.Filled.Chat, value = "", detail = "Ask anything", label = "SideCar")
         }
         val todo = state.tasks?.views
         val needs = todo?.needsMe.orEmpty()
@@ -443,7 +444,7 @@ fun BigButton(text: String, icon: ImageVector, color: Color, onClick: () -> Unit
 fun MicFab(onClick: () -> Unit, modifier: Modifier = Modifier) {
     FloatingActionButton(onClick = onClick, modifier = modifier.size(72.dp), shape = CircleShape,
         containerColor = SideCarColors.Cobalt, contentColor = Color.White) {
-        Icon(Icons.Filled.Mic, "Talk to SideCar", Modifier.size(34.dp))
+        Icon(Icons.AutoMirrored.Filled.Chat, "Chat with SideCar", Modifier.size(34.dp))
     }
 }
 

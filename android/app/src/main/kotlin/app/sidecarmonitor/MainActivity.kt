@@ -66,6 +66,7 @@ class MainActivity : ComponentActivity() {
 
                 val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
                     if (granted) vm.openAssistant(startListening = true) else vm.openAssistant(startListening = false)
+
                 }
                 fun talk() {
                     if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
@@ -98,7 +99,7 @@ class MainActivity : ComponentActivity() {
                     }
                     Box(Modifier.fillMaxSize().safeDrawingPadding()) {
                         when (screen) {
-                            Screen.Home -> HomeScreen(state, vm, onOpen = { screen = it }, onTalk = ::talk)
+                            Screen.Home -> HomeScreen(state, vm, onOpen = { screen = it }, onTalk = { vm.openAssistant(startListening = false) })
                             Screen.Cameras -> CamerasScreen(state, vm::snapshot) { screen = Screen.Home }
                             Screen.Weather -> WeatherScreen(state, vm) { screen = Screen.Home }
                             Screen.Activity -> ActivityScreen(state, vm::snapshot, vm::eventSnapshot, vm::clearActivity) { screen = Screen.Home }
@@ -117,10 +118,12 @@ class MainActivity : ComponentActivity() {
                     Screen.LinkedIn -> LinkedInScreen(vm) { screen = Screen.Home }
                     Screen.Settings -> SettingsScreen(state, onScan = ::scan, onUnpair = vm::unpair) { screen = Screen.Home }
                         }
-                        if (!state.assistantOpen) MicFab(::talk, Modifier.align(Alignment.BottomEnd).padding(20.dp))
+                        if (!state.assistantOpen) MicFab({ vm.openAssistant(startListening = false) }, Modifier.align(Alignment.BottomEnd).padding(20.dp))
                     }
                     if (state.assistantOpen) {
-                        AssistantPanel(state, onTalk = ::talk, onSend = vm::sendText, onStop = vm::stopTurn, onClose = vm::closeAssistant)
+                        app.sidecarmonitor.ui.ChatScreen(state, onSend = vm::sendText,
+                            onVoice = { on -> if (on) talk() else vm.setVoiceMode(false) },
+                            onStop = { vm.stopTurn() }, onNewChat = vm::newChat, onClose = vm::closeAssistant)
                     }
                 }
               }
