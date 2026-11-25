@@ -34,6 +34,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
@@ -78,7 +79,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
-enum class Screen { Home, Cameras, Weather, Activity, Tasks, Week, House, LinkedIn, X, Day, Ideas, Settings }
+enum class Screen { Home, Cameras, Weather, Activity, Tasks, Week, House, LinkedIn, X, Day, Ideas, Car, Settings }
 
 private fun JsonObject?.str(key: String): String? =
     this?.get(key)?.let { runCatching { it.jsonPrimitive.content }.getOrNull() }?.takeIf { it != "null" }
@@ -171,6 +172,8 @@ fun HomeScreen(state: UiState, vm: app.sidecarmonitor.AppViewModel, onOpen: (Scr
             Tile(Color(0xFF2F3640), Modifier.weight(1f).aspectRatio(1f), onClick = { onOpen(Screen.X) },
                 icon = null, value = summary?.x?.signal?.toString() ?: "\uD835\uDD4F",
                 detail = summary?.x?.newest ?: "Signal", label = "X")
+            Tile(Color(0xFF1B5E20), Modifier.weight(1f).aspectRatio(1f), onClick = { onOpen(Screen.Car) },
+                icon = Icons.Filled.DirectionsCar, value = "", detail = "Hands-free briefings", label = "Car")
         }
         val todo = state.tasks?.views
         val needs = todo?.needsMe.orEmpty()

@@ -120,10 +120,11 @@ class MainActivity : ComponentActivity() {
                     Screen.X -> app.sidecarmonitor.ui.XScreen(vm) { screen = Screen.Home }
                     Screen.Day -> app.sidecarmonitor.ui.DayScreen(vm) { screen = Screen.Home }
                     Screen.Ideas -> app.sidecarmonitor.ui.IdeasScreen(vm) { screen = Screen.Home }
+                    Screen.Car -> app.sidecarmonitor.ui.CarScreen(vm) { screen = Screen.Home }
                     Screen.LinkedIn -> LinkedInScreen(vm) { screen = Screen.Home }
                     Screen.Settings -> SettingsScreen(state, onScan = ::scan, onUnpair = vm::unpair) { screen = Screen.Home }
                         }
-                        if (!state.assistantOpen) MicFab({ vm.openAssistant(startListening = false) }, Modifier.align(Alignment.BottomEnd).padding(20.dp))
+                        if (!state.assistantOpen && screen != Screen.Car) MicFab({ vm.openAssistant(startListening = false) }, Modifier.align(Alignment.BottomEnd).padding(20.dp))
                     }
                     if (state.assistantOpen) {
                         app.sidecarmonitor.ui.ChatScreen(state, onSend = vm::sendText,

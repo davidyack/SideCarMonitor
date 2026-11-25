@@ -19,6 +19,9 @@ object PlaybackMemory {
         return to
     }
 
+    /** Where to start [key] (ms): the saved spot a few seconds back, or 0. */
+    fun position(context: Context, key: String): Int = prefs(context).getInt(key, 0).let { if (it < 5_000) 0 else it - 3_000 }
+
     fun save(context: Context, key: String, positionMs: Int) {
         if (positionMs >= 5_000) prefs(context).edit().putInt(key, positionMs).apply()
     }

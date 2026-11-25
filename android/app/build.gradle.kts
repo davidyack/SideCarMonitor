@@ -82,6 +82,8 @@ dependencies {
 
   // SideCar: kiosk gateway client, JSON, QR pairing, icons
   implementation(libs.okhttp)
+  implementation(libs.androidx.media3.exoplayer)
+  implementation(libs.androidx.media3.session)
   implementation(libs.androidx.work.runtime.ktx)
   implementation(libs.kotlinx.serialization.json)
   implementation(libs.play.services.code.scanner)
