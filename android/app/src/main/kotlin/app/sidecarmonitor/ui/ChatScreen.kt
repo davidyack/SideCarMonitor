@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
@@ -126,7 +127,14 @@ fun ChatScreen(
                     }
                 }
             }
-            itemsIndexed(state.lines) { _, line -> if (line.fromUser) UserMessage(line.text) else AgentMessage(line) }
+            itemsIndexed(state.lines) { _, line ->
+                when {
+                    line.fromUser -> UserMessage(line.text)
+                    line.error -> Text("\u26A0 ${line.text}", Modifier.clip(RoundedCornerShape(12.dp)).background(Color(0xFF3A1D22))
+                        .padding(horizontal = 12.dp, vertical = 8.dp), fontSize = 14.sp, color = Color(0xFFFF9AA2))
+                    else -> AgentMessage(line)
+                }
+            }
             if (waiting) item { Thinking(state.assistantNote) }
             item { Spacer(Modifier.height(4.dp)) }
         }
@@ -136,8 +144,9 @@ fun ChatScreen(
         else Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextField(
                 value = input, onValueChange = { input = it },
-                modifier = Modifier.weight(1f).clip(RoundedCornerShape(26.dp)),
-                placeholder = { Text("Message SideCar") }, maxLines = 5,
+                modifier = Modifier.weight(1f).heightIn(min = 56.dp).clip(RoundedCornerShape(26.dp)),
+                placeholder = { Text("Message SideCar") }, minLines = 1, maxLines = 8,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences),
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = SideCarColors.Panel, unfocusedContainerColor = SideCarColors.Panel,
                     focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent,

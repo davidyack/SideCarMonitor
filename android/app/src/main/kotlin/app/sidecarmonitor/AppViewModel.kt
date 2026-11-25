@@ -32,7 +32,7 @@ import kotlinx.coroutines.withTimeout
 
 enum class AssistantState { Idle, Connecting, Listening, Thinking, Speaking }
 
-data class ChatLine(val fromUser: Boolean, val text: String, val tools: List<String> = emptyList())
+data class ChatLine(val fromUser: Boolean, val text: String, val tools: List<String> = emptyList(), val error: Boolean = false)
 
 data class UiState(
     val paired: Boolean = false,
@@ -356,7 +356,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 throw e
             } catch (e: Exception) {
                 voiceConversation = false
-                setAssistant(AssistantState.Idle, e.message ?: "Something went wrong")
+                _state.update { it.copy(voiceMode = false) }
+                showError(e.message ?: "Something went wrong")
             }
         }
     }
@@ -377,7 +378,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(voiceMode = false) }
         stopTurn()
         turnJob = viewModelScope.launch {
-            try { respond(text.trim()) } catch (e: Exception) { setAssistant(AssistantState.Idle, e.message ?: "Something went wrong") }
+            try { respond(text.trim()) }
+            catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) { showError(e.message ?: "Something went wrong") }
         }
     }
 
@@ -402,7 +405,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         replyDone = CompletableDeferred()
         // If you're looking at a task, "it" means that task.
         val context = _state.value.openTask?.row?.let { "[Context: the user is looking at task ${it.id} \"${it.title}\"]\n" } ?: ""
-        if (!connection.send(context + text)) throw IllegalStateException("Not connected to the kiosk")
+        if (!connection.sendWhenOpen(context + text)) { chatJob?.cancel(); chat = null; throw IllegalStateException("Couldn't reach the kiosk. Check Tailscale, then try again.") }
 
         coroutineScope {
             // Speak while the reply is still streaming: each finished sentence is synthesized by the kiosk
@@ -530,6 +533,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (lines.isNotEmpty() && !lines.last().fromUser) lines[lines.size - 1] = lines.last().copy(text = text)
         else lines += ChatLine(false, text)
         s.copy(lines = lines)
+    }
+
+    /** A failure shows up in the conversation (not just the status line), so a send never silently disappears. */
+    private fun showError(message: String) {
+        setAssistant(AssistantState.Idle, message)
+        addLine(ChatLine(false, message, error = true))
     }
 
     private fun addLine(line: ChatLine) = _state.update { it.copy(lines = (it.lines + line).takeLast(40)) }

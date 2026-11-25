@@ -418,6 +418,8 @@ class SideCarClient(private val pairing: Pairing) {
 
     inner class ChatConnection {
         private var socket: WebSocket? = null
+        /** Completes when the WebSocket is open (true) or failed (false). */
+        private val opened = kotlinx.coroutines.CompletableDeferred<Boolean>()
 
         val events: Flow<ChatEvent> = callbackFlow {
             val ws = client.newWebSocket(Request.Builder().url(base.replace("https://", "wss://") + "/api/chat").build(),
@@ -428,7 +430,10 @@ class SideCarClient(private val pairing: Pairing) {
                         trySend(ChatEvent(s("type") ?: "", s("id"), s("text"), s("name"), s("message")))
                     }
 
+                    override fun onOpen(webSocket: WebSocket, response: Response) { opened.complete(true) }
+
                     override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                        opened.complete(false)
                         trySend(ChatEvent("error", null, null, null, "Lost connection to the kiosk: ${t.message}"))
                         close()
                     }
@@ -441,6 +446,12 @@ class SideCarClient(private val pairing: Pairing) {
 
         fun send(text: String) =
             socket?.send(buildJsonObject { put("type", "chat"); put("text", text) }.toString()) ?: false
+
+        /** Sends once the connection is open (a typed message can otherwise go out before it is). */
+        suspend fun sendWhenOpen(text: String): Boolean {
+            val ok = kotlinx.coroutines.withTimeoutOrNull(15_000) { opened.await() } ?: false
+            return ok && send(text)
+        }
 
         fun endConversation() = socket?.send("""{"type":"end_conversation"}""") ?: false
     }
