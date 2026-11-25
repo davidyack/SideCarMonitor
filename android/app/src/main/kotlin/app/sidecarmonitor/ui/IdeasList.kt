@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -35,9 +36,19 @@ import app.sidecarmonitor.data.IdeasInfo
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+/** The Ideas tile's screen: one ranked list of PMCollab opportunities and wild ideas. */
+@Composable
+fun IdeasScreen(vm: AppViewModel, onBack: () -> Unit) {
+    androidx.activity.compose.BackHandler(onBack = onBack)
+    Column(Modifier.fillMaxSize()) {
+        PageHeader("Ideas", onBack)
+        IdeasList(vm, showFilters = false)
+    }
+}
+
 /** The Ideas tab (LinkedIn and X): PMCollab opportunities and wild ideas from your feeds, best first. */
 @Composable
-fun IdeasList(vm: AppViewModel) {
+fun IdeasList(vm: AppViewModel, showFilters: Boolean = false) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var filter by remember { mutableStateOf("all") }
@@ -46,7 +57,7 @@ fun IdeasList(vm: AppViewModel) {
     LaunchedEffect(filter) { while (true) { reload(); delay(if (info?.busy == true) 15_000 else 120_000) } }
 
     LazyColumn(Modifier.padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        item {
+        if (showFilters) item {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf("all" to "All", "pmcollab" to "PMCollab", "wild" to "Wild ideas").forEach { (k, label) ->
                     Text(label, Modifier.background(if (filter == k) SideCarColors.Cobalt else SideCarColors.Panel).clickable { filter = k }

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="SideCarMonitor.Controls.IdeasPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Grid Background="{StaticResource KioskBackground}" Padding="{StaticResource PagePadding}" RowSpacing="{StaticResource Gap}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Header: Home, title + status -->
+        <Grid ColumnSpacing="{StaticResource Gap}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Button Click="Home_Click" Height="{StaticResource TouchTarget}" Padding="{StaticResource PanelPadding}"
+                    CornerRadius="{StaticResource SmallCorner}" FontSize="{StaticResource FontBody}" AutomationProperties.Name="Home">
+                <StackPanel Orientation="Horizontal" Spacing="{StaticResource Gap}">
+                    <FontIcon Glyph="&#xE80F;" FontSize="{StaticResource FontIcon}" />
+                    <TextBlock Text="Home" VerticalAlignment="Center" />
+                </StackPanel>
+            </Button>
+            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                <TextBlock Text="Ideas" FontSize="{StaticResource FontTitle}" FontWeight="SemiBold" />
+                <TextBlock Text="PMCollab opportunities and wild ideas from your LinkedIn and X feeds, best first"
+                           FontSize="{StaticResource FontCaption}" Foreground="{StaticResource MutedText}" TextTrimming="CharacterEllipsis" />
+            </StackPanel>
+        </Grid>
+
+        <ScrollViewer x:Name="ListScroll" Grid.Row="1">
+            <StackPanel x:Name="IdeasPanel" Spacing="{StaticResource SmallGap}" />
+        </ScrollViewer>
+    </Grid>
+</UserControl>

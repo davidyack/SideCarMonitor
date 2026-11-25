@@ -412,7 +412,7 @@
             </Button>
 
             <!-- To-do (live) -->
-            <Button x:Name="TasksTile" Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="2" Style="{StaticResource MetroTile}"
+            <Button x:Name="TasksTile" Grid.Row="1" Grid.Column="2" Style="{StaticResource MetroTile}"
                     Background="{StaticResource TileEmerald}" Padding="{StaticResource TilePadding}"
                     Click="TasksTile_Click" AutomationProperties.Name="To-do">
                 <Grid>
@@ -424,6 +424,23 @@
                         <TextBlock x:Name="TasksTileDetail" Text="Nothing for today" FontSize="{StaticResource FontCaption}"
                                    Opacity="0.85" TextTrimming="CharacterEllipsis" />
                         <TextBlock Text="To-do" FontSize="{StaticResource FontBody}" />
+                    </StackPanel>
+                </Grid>
+            </Button>
+
+            <!-- Ideas (PMCollab opportunities and wild ideas from the feeds) -->
+            <Button x:Name="IdeasTile" Grid.Row="1" Grid.Column="3" Style="{StaticResource MetroTile}"
+                    Background="{StaticResource TileMauve}" Padding="{StaticResource TilePadding}"
+                    Click="IdeasTile_Click" AutomationProperties.Name="Ideas">
+                <Grid>
+                    <FontIcon Glyph="&#xEA80;" FontSize="{StaticResource FontTileIcon}"
+                              HorizontalAlignment="Left" VerticalAlignment="Top" />
+                    <TextBlock x:Name="IdeasTileValue" Text="--" FontSize="{StaticResource FontTileValue}"
+                               HorizontalAlignment="Right" VerticalAlignment="Top" />
+                    <StackPanel VerticalAlignment="Bottom">
+                        <TextBlock x:Name="IdeasTileDetail" Text="Reading your feeds" FontSize="{StaticResource FontCaption}"
+                                   Opacity="0.85" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="Ideas" FontSize="{StaticResource FontBody}" />
                     </StackPanel>
                 </Grid>
             </Button>
@@ -477,6 +494,7 @@
         <controls:LinkedInPage x:Name="LinkedInView" Visibility="Collapsed" />
         <controls:CalendarPage x:Name="CalendarView" Visibility="Collapsed" />
         <controls:XPage x:Name="XView" Visibility="Collapsed" />
+        <controls:IdeasPage x:Name="IdeasView" Visibility="Collapsed" />
 
         <!-- ===================== Pair phone (QR code) ===================== -->
         <Grid x:Name="PairingPage" Visibility="Collapsed" Background="{StaticResource KioskBackground}"

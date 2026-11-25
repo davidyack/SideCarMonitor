@@ -32,6 +32,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
@@ -75,7 +76,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
-enum class Screen { Home, Cameras, Weather, Activity, Tasks, Week, House, LinkedIn, X, Day, Settings }
+enum class Screen { Home, Cameras, Weather, Activity, Tasks, Week, House, LinkedIn, X, Day, Ideas, Settings }
 
 private fun JsonObject?.str(key: String): String? =
     this?.get(key)?.let { runCatching { it.jsonPrimitive.content }.getOrNull() }?.takeIf { it != "null" }
@@ -103,6 +104,9 @@ fun HomeScreen(state: UiState, vm: app.sidecarmonitor.AppViewModel, onOpen: (Scr
         .minByOrNull { it.second }
     val untilMin = next?.let { java.time.Duration.between(nowInstant, it.second).toMinutes() }
     val meetingSoon = untilMin != null && untilMin <= 15 && untilMin > -5
+    // Ideas tile: count of new ideas and the best one's title.
+    var ideas by remember { mutableStateOf<app.sidecarmonitor.data.IdeasInfo?>(null) }
+    LaunchedEffect(state.connected) { while (true) { runCatching { vm.kiosk?.ideas("all") }.getOrNull()?.let { ideas = it }; delay(300_000) } }
 
     Column(Modifier.fillMaxSize().verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         BriefCard(vm)
@@ -161,6 +165,11 @@ fun HomeScreen(state: UiState, vm: app.sidecarmonitor.AppViewModel, onOpen: (Scr
                 icon = Icons.Filled.Groups, value = "", detail = "Signal", label = "LinkedIn")
             Tile(SideCarColors.Steel, Modifier.weight(0.8f).height(130.dp), onClick = { onOpen(Screen.Settings) },
                 icon = Icons.Filled.Settings, value = "", detail = "", label = "Settings")
+        }
+        if (ideas?.available == true) {
+            Tile(SideCarColors.Mauve, Modifier.fillMaxWidth().height(110.dp), onClick = { onOpen(Screen.Ideas) },
+                icon = androidx.compose.material.icons.Icons.Filled.Lightbulb, value = (ideas?.ideas?.count { it.status == "new" } ?: 0).toString(),
+                detail = ideas?.ideas?.firstOrNull()?.title ?: "Reading your feeds", label = "Ideas")
         }
     }
 }

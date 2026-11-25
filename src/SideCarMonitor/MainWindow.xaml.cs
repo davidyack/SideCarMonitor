@@ -940,6 +940,23 @@ public sealed partial class MainWindow : Window
     // ---- LinkedIn tile ----
     private LinkedInFeed? _linkedIn;
 
+    private void IdeasTile_Click(object sender, RoutedEventArgs e)
+    {
+        HideOverlayPages();
+        HomePage.Visibility = Visibility.Collapsed;
+        IdeasView.Visibility = Visibility.Visible;
+        IdeasView.Show();
+    }
+
+    /// <summary>Ideas tile: how many new ideas, and the best one's title.</summary>
+    private void UpdateIdeasTile()
+    {
+        if (_ideas is null) { IdeasTileValue.Text = "--"; IdeasTileDetail.Text = "Add pmcollab-profile.md to turn on"; return; }
+        var ranked = _ideas.Ranked().ToList();
+        IdeasTileValue.Text = ranked.Count(i => i.Status == "new").ToString();
+        IdeasTileDetail.Text = ranked.FirstOrDefault()?.Title ?? (_ideas.Busy ? "Reading your feeds" : "No ideas yet");
+    }
+
     private void LinkedInTile_Click(object sender, RoutedEventArgs e)
     {
         XView.Visibility = Visibility.Collapsed;
@@ -978,6 +995,7 @@ public sealed partial class MainWindow : Window
         LinkedInView.Visibility = Visibility.Collapsed;
         CalendarView.Visibility = Visibility.Collapsed;
         XView.Visibility = Visibility.Collapsed;
+        IdeasView.Visibility = Visibility.Collapsed;
     }
     private string _activityFilter = "all";
     private HomeEventStream? _houseEvents;
@@ -1150,6 +1168,7 @@ public sealed partial class MainWindow : Window
     private void ShowHome()
     {
         XView.Visibility = Visibility.Collapsed;
+        IdeasView.Visibility = Visibility.Collapsed;
         CalendarView.Visibility = Visibility.Collapsed;
         LinkedInView.Visibility = Visibility.Collapsed;
         ActivityView.Visibility = Visibility.Collapsed;
@@ -1225,13 +1244,18 @@ public sealed partial class MainWindow : Window
             _ideas = new IdeaRadar(_agent, File.ReadAllText(profilePath)) { Tasks = _taskService };
             _ideas.Changed += () => DispatcherQueue.TryEnqueue(() =>
             {
+                UpdateIdeasTile();
+                if (IdeasView.Visibility == Visibility.Visible) IdeasView.Show();
                 if (LinkedInView.Visibility == Visibility.Visible) LinkedInView.Show();
                 if (XView.Visibility == Visibility.Visible) XView.Show();
             });
             LinkedInView.Ideas = _ideas;
+            IdeasView.Initialize(_ideas);
             XView.Ideas = _ideas;
         }
+        UpdateIdeasTile();
         LinkedInView.HomeRequested += ShowHome;
+        IdeasView.HomeRequested += ShowHome;
         _linkedIn.Changed += () => DispatcherQueue.TryEnqueue(UpdateLinkedInTile);
         UpdateLinkedInTile();
         _reminders = new ReminderService(_taskService);

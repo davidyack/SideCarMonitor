@@ -94,6 +94,29 @@ public partial class App : Application
             return;
         }
 
+        // PMCollab MCP sign-in ("--pmcollab-login") and a tool listing for checking ("--pmcollab-tools <out.json>").
+        if (cl.Contains("--pmcollab-login", StringComparer.OrdinalIgnoreCase) || cl.Contains("--pmcollab-tools", StringComparer.OrdinalIgnoreCase))
+        {
+            _ = Task.Run(async () =>
+            {
+                var log = Path.Combine(Path.GetDirectoryName(TasksPath)!, "pmcollab.log");
+                try
+                {
+                    var mcp = new Services.PmCollabMcp("https://dev1.pmcollab.ai/mcp/pmc");
+                    if (cl.Contains("--pmcollab-login", StringComparer.OrdinalIgnoreCase))
+                        File.AppendAllText(log, $"{DateTimeOffset.Now:u} {await mcp.SignInAsync()}\n");
+                    var outPath = cl.SkipWhile(a => !a.Equals("--pmcollab-tools", StringComparison.OrdinalIgnoreCase)).Skip(1).FirstOrDefault()
+                                  ?? Path.Combine(Path.GetTempPath(), "pmcollab-tools.json");
+                    var tools = await mcp.ListToolsAsync();
+                    File.WriteAllText(outPath, tools.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+                    File.AppendAllText(log, $"{DateTimeOffset.Now:u} {tools.Count} tools listed to {outPath}\n");
+                }
+                catch (Exception ex) { File.AppendAllText(log, $"{DateTimeOffset.Now:u} {ex.GetType().Name}: {ex.Message}\n"); }
+                Environment.Exit(0);
+            });
+            return;
+        }
+
         // Calendar sign-in: "--calendar-login CTC" opens the browser to sign in that M365 account once.
         if (cl.Contains("--calendar-login", StringComparer.OrdinalIgnoreCase))
         {

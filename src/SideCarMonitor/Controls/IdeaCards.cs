@@ -23,18 +23,11 @@ public static class IdeaCards
             panel.Children.Add(Note("The idea radar is off: set assistant.pmcollabProfile in settings."));
             return;
         }
-        var bar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        foreach (var (key, label) in new[] { ("all", "All"), ("pmcollab", "PMCollab"), ("wild", "Wild ideas") })
-        {
-            var count = radar.Ranked(key).Count();
-            bar.Children.Add(Button($"{label} {count}", Filter == key ? "TileCobalt" : "PanelBackground", () => { Filter = key; rerender(); }));
-        }
-        panel.Children.Add(bar);
         panel.Children.Add(Note(radar.Busy ? "Reading your feeds for ideas…"
             : radar.Data.LastRun is { } at ? $"Last looked {at:ddd h:mm tt} · {radar.Data.LastResult}. New feed reads are checked automatically."
             : "Looking through your stored posts for the first time…"));
 
-        var ideas = radar.Ranked(Filter).Take(40).ToList();
+        var ideas = radar.Ranked().Take(40).ToList();
         if (ideas.Count == 0 && !radar.Busy) panel.Children.Add(Note("No ideas yet."));
         var rank = 0;
         foreach (var idea in ideas) panel.Children.Add(Card(radar, idea, ++rank, rerender));
