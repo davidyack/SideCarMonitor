@@ -1237,6 +1237,9 @@ public sealed partial class MainWindow : Window
         if (_x is not null) _x.Changed += () => DispatcherQueue.TryEnqueue(UpdateXTile);
         UpdateXTile();
         LinkedInView.Initialize(_linkedIn);
+        // Briefing memory: the episodes made before the ledger existed count as already briefed.
+        if (_linkedIn?.State is { PodcastAt: { } liAt, PodcastScript.Length: > 0 } li) BriefingLedger.Record("LinkedIn", liAt, li.PodcastScript.Split("\n\n"));
+        if (_x?.State is { PodcastAt: { } xAt, PodcastScript.Length: > 0 } xs) BriefingLedger.Record("X", xAt, xs.PodcastScript.Split("\n\n"));
         // Idea radar: PMCollab opportunities and wild ideas from the feeds (needs %APPDATA%\SideCarMonitor\pmcollab-profile.md).
         var profilePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SideCarMonitor", "pmcollab-profile.md");
         if (_agent is not null && File.Exists(profilePath))
