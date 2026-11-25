@@ -241,7 +241,7 @@ var taskTools = new[]
                [Description("high, medium or low")] string priority = "medium",
                [Description("Optional date YYYY-MM-DD")] string? date = null,
                [Description("True if the date is a hard deadline; false for a flexible target")] bool hardDeadline = false,
-               [Description("Put it on Today (a pin, not a date)")] bool today = false) =>
+               [Description("For today: dates it today (when no date is given)")] bool today = false) =>
             await AskHostAsync("task_add", new { title, details, priority, date, hardDeadline, today })),
     HostTool("task_update",
         [Description("Change a task's title, details, priority or date (a date change is an explicit reschedule). Only on the user's request.")]
@@ -254,7 +254,7 @@ var taskTools = new[]
                [Description("true = hard deadline, false = flexible target (optional)")] bool? hardDeadline = null) =>
             await AskHostAsync("task_update", new { id, title, details, priority, date, clearDate, hardDeadline })),
     HostTool("task_pin_today",
-        [Description("Put a task on Today (or take it off). Not a date change.")]
+        [Description("Put a task on today: dates it today as a flexible target. (Unfinished to-dos roll to the next day at midnight on their own.)")]
         async ([Description("Task id")] string id, [Description("true to pin, false to unpin")] bool pinned = true) =>
             await AskHostAsync("task_pin_today", new { id, pinned })),
     HostTool("task_mark_done",

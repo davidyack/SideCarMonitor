@@ -38,9 +38,10 @@ public sealed class TaskAssistant : IDisposable
         _agent = agent;
         _ui = ui;
 
-        // Catch up on daily jobs at start, then check every 10 minutes (each job runs once per local date).
+        // Catch up on daily jobs at start, then check every minute (each job runs once per local date), so
+        // yesterday's unfinished to-dos roll to today right after midnight.
         _jobTimer = ui.CreateTimer();
-        _jobTimer.Interval = TimeSpan.FromMinutes(10);
+        _jobTimer.Interval = TimeSpan.FromMinutes(1);
         _jobTimer.Tick += (_, _) => _ = RunDueJobsAsync();
         _jobTimer.Start();
 
@@ -71,7 +72,8 @@ public sealed class TaskAssistant : IDisposable
 
     /// <summary>
     /// Registers "SideCarMonitor daily jobs" in Windows Task Scheduler (current user, no admin): runs the kiosk exe
-    /// with --jobs every morning, which does the rollover and brief headlessly even if the kiosk is closed.
+    /// with --jobs at 12:05 AM and every 6 hours after (the rollover right after midnight, the brief after 6 AM),
+    /// headlessly even if the kiosk is closed. Each job runs once per day however often this fires.
     /// </summary>
     public static string RegisterScheduledTask(string exePath)
     {
@@ -79,7 +81,7 @@ public sealed class TaskAssistant : IDisposable
         {
             UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true,
         };
-        foreach (var a in new[] { "/Create", "/F", "/TN", "SideCarMonitor daily jobs", "/SC", "DAILY", "/ST", "05:30",
+        foreach (var a in new[] { "/Create", "/F", "/TN", "SideCarMonitor daily jobs", "/SC", "DAILY", "/ST", "00:05", "/RI", "360", "/DU", "24:00",
                                   "/IT", "/TR", $"\"{exePath}\" --jobs" })
             psi.ArgumentList.Add(a);
         using var p = Process.Start(psi)!;

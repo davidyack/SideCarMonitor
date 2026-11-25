@@ -62,6 +62,7 @@ class MainActivity : ComponentActivity() {
               androidx.compose.material3.Surface(Modifier.fillMaxSize(), color = SideCarColors.Background, contentColor = androidx.compose.ui.graphics.Color.White) {
                 val state by vm.state.collectAsStateWithLifecycle()
                 var screen by rememberSaveable { mutableStateOf(Screen.Home) }
+                var tasksTab by rememberSaveable { mutableStateOf("needsMe") } // which list the week's chips open
                 var pairError by rememberSaveable { mutableStateOf<String?>(null) }
 
                 val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -93,24 +94,28 @@ class MainActivity : ComponentActivity() {
                         when {
                             state.assistantOpen -> vm.closeAssistant()
                             state.openTask != null -> { vm.closeTask(); if (screen == Screen.Week) vm.loadWeek() }
-                            screen == Screen.Week -> screen = Screen.Tasks
+                            screen == Screen.Tasks -> screen = Screen.Week // lists open from the week
+                            screen == Screen.Week -> screen = Screen.Home
                             else -> screen = Screen.Home
                         }
                     }
                     Box(Modifier.fillMaxSize().safeDrawingPadding()) {
                         when (screen) {
-                            Screen.Home -> HomeScreen(state, vm, onOpen = { screen = it }, onTalk = { vm.openAssistant(startListening = false) })
+                            Screen.Home -> HomeScreen(state, vm, onOpen = { if (it == Screen.Week) vm.loadWeek(0); screen = it }, onTalk = { vm.openAssistant(startListening = false) })
                             Screen.Cameras -> CamerasScreen(state, vm::snapshot) { screen = Screen.Home }
                             Screen.Weather -> WeatherScreen(state, vm) { screen = Screen.Home }
                             Screen.Activity -> ActivityScreen(state, vm::snapshot, vm::eventSnapshot, vm::clearActivity) { screen = Screen.Home }
                             Screen.Tasks ->
                                 if (state.openTask != null) TaskDetailScreen(state, vm::taskAction, dictate = { vm.dictate(state.openTask?.row?.id) }, stopDictate = vm::stopDictation) { vm.closeTask() }
                                 else TasksScreen(state, onOpen = vm::openTask, onAdd = vm::addTask,
-                                    onWeek = { vm.loadWeek(0); screen = Screen.Week }, onDismissBrief = vm::dismissTaskBrief) { screen = Screen.Home }
+                                    onWeek = { vm.loadWeek(0); screen = Screen.Week }, onDismissBrief = vm::dismissTaskBrief, initialTab = tasksTab) { vm.loadWeek(); screen = Screen.Week }
                             Screen.Week ->
                                 if (state.openTask != null) TaskDetailScreen(state, vm::taskAction, dictate = { vm.dictate(state.openTask?.row?.id) }, stopDictate = vm::stopDictation) { vm.closeTask(); vm.loadWeek() }
                                 else WeekScreen(state.week, state.taskMessage, onOrder = vm::orderDay, onToggleDone = vm::toggleDone,
-                                    onOpen = vm::openTask, onWeek = vm::shiftWeek) { screen = Screen.Tasks }
+                                    onOpen = vm::openTask, onWeek = vm::shiftWeek,
+                                    needsMe = state.tasks?.views?.needsMe?.size ?: 0,
+                                    onList = { tab -> tasksTab = tab; screen = Screen.Tasks },
+                                    onAdd = { title -> vm.addTask(title, true); vm.loadWeek() }) { screen = Screen.Home }
                             Screen.House -> HouseScreen(vm) { screen = Screen.Home }
                     Screen.X -> app.sidecarmonitor.ui.XScreen(vm) { screen = Screen.Home }
                     Screen.Day -> app.sidecarmonitor.ui.DayScreen(vm) { screen = Screen.Home }

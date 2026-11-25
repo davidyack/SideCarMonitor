@@ -23,6 +23,7 @@ public sealed class TaskJobs(TaskService tasks, Func<DateTimeOffset>? now = null
     {
         var today = tasks.Today;
         var moved = 0;
+        tasks.MigrateTodayPins(); // every check, not just once a day (it's a no-op once done)
         var data = tasks.Store.Read();
 
         if (!data.JobRuns.TryGetValue(RolloverJob, out var r) || r != today)
@@ -52,17 +53,17 @@ public sealed class TaskJobs(TaskService tasks, Func<DateTimeOffset>? now = null
             var open = d.Tasks.Where(t => t.Status == TodoStatus.Open).ToList();
             var lines = new List<string>();
 
-            var deadlines = open.Where(t => t.DateType == DateKind.Hard && t.Date is { } dt && dt <= today.AddDays(2))
+            foreach (var t in open.Where(t => t.MissedDeadline is not null).OrderBy(t => t.MissedDeadline))
+                lines.Add($"MISSED hard deadline: {t.Title} (was {t.MissedDeadline:ddd MMM d}; on today)");
+            var deadlines = open.Where(t => t.DateType == DateKind.Hard && t.Date is { } dt && dt >= today && dt <= today.AddDays(2))
                                 .OrderBy(t => t.Date).ToList();
             foreach (var t in deadlines)
-                lines.Add(t.Date < today ? $"OVERDUE hard deadline: {t.Title} (was {t.Date:ddd MMM d})"
-                        : t.Date == today ? $"Hard deadline today: {t.Title}"
-                        : $"Hard deadline {t.Date:ddd}: {t.Title}");
+                lines.Add(t.Date == today ? $"Hard deadline today: {t.Title}" : $"Hard deadline {t.Date:ddd}: {t.Title}");
 
             foreach (var t in open.Where(tasks.NeedsMe))
                 lines.Add(t.PendingQuestionId is not null ? $"Question for you on \"{t.Title}\""
                         : t.Deliverable.PendingRevision is not null ? $"Revision to review on \"{t.Title}\""
-                        : $"\"{t.Title}\" is overdue: pick a date, drop it, or mark it done");
+                        : $"\"{t.Title}\" has rolled forward {tasks.DaysRolled(t)} days: pick a date, drop the date, or mark it done");
 
             var work = open.Where(t => t.Deliverable.Versions.Any(v => v.Author == Actor.Assistant && v.At > since)
                                        || (t.Deliverable.PendingRevision is { } p && p.At > since))
@@ -70,9 +71,9 @@ public sealed class TaskJobs(TaskService tasks, Func<DateTimeOffset>? now = null
             if (work.Count > 0) lines.Add($"Assistant drafted work on: {string.Join(", ", work)}");
 
             var rolled = d.Tasks.SelectMany(t => t.History.Where(e => e.Rollover is { Undone: false } && e.At > since)
-                                                  .Select(e => $"{t.Title} → {e.Rollover!.To:ddd}")).ToList();
+                                                  .Select(_ => t.Title)).Distinct().ToList();
             if (rolled.Count > 0)
-                lines.Add($"Moved {rolled.Count} flexible target{(rolled.Count == 1 ? "" : "s")}: {string.Join("; ", rolled)}");
+                lines.Add($"Rolled {rolled.Count} unfinished to-do{(rolled.Count == 1 ? "" : "s")} to today: {string.Join("; ", rolled)}");
 
             // Only rollovers? Still worth one line; nothing at all? No brief.
             if (lines.Count == 0) return null;

@@ -36,6 +36,9 @@ public sealed class TaskItem
     public DateOnly? Date { get; set; }
     public DateKind DateType { get; set; } = DateKind.Flexible;
 
+    /// <summary>The hard deadline this task missed (it rolls forward daily like the rest, flagged in red).</summary>
+    public DateOnly? MissedDeadline { get; set; }
+
     /// <summary>Your order within its day (set by dragging in the weekly plan); lower is first, null sorts by priority after ranked ones.</summary>
     public double? DayRank { get; set; }
 
@@ -85,6 +88,8 @@ public sealed class RolloverRecord
 {
     public DateOnly From { get; set; }
     public DateOnly To { get; set; }
+    /// <summary>The task was a hard deadline before this roll (Undo makes it one again).</summary>
+    public bool WasHard { get; set; }
     /// <summary>Task version right after the move. Undo only works if nothing changed since.</summary>
     public int VersionAfter { get; set; }
     public bool Undone { get; set; }

@@ -54,38 +54,32 @@ public sealed class TaskRulesTests : IDisposable
     }
 
     [Fact]
-    public void Flexible_medium_target_from_yesterday_moves_to_three_days_from_today_exactly_once()
+    public void Unfinished_todos_roll_to_today_once_after_todays_own_in_their_old_order()
     {
-        var t = _svc.Add(Actor.User, "Renew passport", priority: Priority.Medium, date: Today.AddDays(-1));
+        var todays = _svc.Add(Actor.User, "Already today", date: Today);
+        _svc.OrderDay(Actor.User, Today, [todays.Id]);
+        var a = _svc.Add(Actor.User, "Renew passport", priority: Priority.Low, date: Today.AddDays(-1));
+        var b = _svc.Add(Actor.User, "Older one", date: Today.AddDays(-3));
 
         _jobs.RunDue();
         _jobs.RunDue();          // same day again: no second move
         _svc.RunRollover();      // even calling rollover directly again
 
-        var after = _svc.Get(t.Id)!;
-        Assert.Equal(Today.AddDays(3), after.Date);
+        var after = _svc.Get(a.Id)!;
+        Assert.Equal(Today, after.Date);
         Assert.Equal(1, after.RolloverCount);
         Assert.Equal(Today.AddDays(-1), after.OriginalTarget);
         var moves = after.History.Where(e => e.Rollover is not null).ToList();
         Assert.Single(moves);
-        Assert.Contains("Moved from", moves[0].Text);
-        Assert.Equal(Today.AddDays(-1), moves[0].Rollover!.From);
-        Assert.Equal(Today.AddDays(3), moves[0].Rollover!.To);
-    }
-
-    [Theory]
-    [InlineData(Priority.High, 1)]
-    [InlineData(Priority.Medium, 3)]
-    [InlineData(Priority.Low, 5)]
-    public void Rollover_distance_depends_on_priority(Priority p, int days)
-    {
-        var t = _svc.Add(Actor.User, "x", priority: p, date: Today.AddDays(-4));
-        _svc.RunRollover();
-        Assert.Equal(Today.AddDays(days), _svc.Get(t.Id)!.Date);
+        Assert.Contains("Rolled from", moves[0].Text);
+        Assert.Equal(Today, moves[0].Rollover!.To);
+        var order = TaskService.InDayOrder(_svc.All().Where(t => t.Date == Today)).Select(t => t.Title).ToList();
+        Assert.Equal(["Already today", "Older one", "Renew passport"], order); // oldest first, after today's own
+        Assert.Equal(3, _svc.DaysRolled(_svc.Get(b.Id)!));
     }
 
     [Fact]
-    public void Hard_deadline_task_due_today_undated_and_done_tasks_stay_unchanged()
+    public void Missed_hard_deadline_rolls_to_today_flagged_while_undated_today_and_done_stay()
     {
         var hard = _svc.Add(Actor.User, "File taxes", date: Today.AddDays(-1), dateType: DateKind.Hard);
         var today = _svc.Add(Actor.User, "Call plumber", date: Today);
@@ -95,37 +89,59 @@ public sealed class TaskRulesTests : IDisposable
 
         _jobs.RunDue();
 
-        Assert.Equal(Today.AddDays(-1), _svc.Get(hard.Id)!.Date);
+        var h = _svc.Get(hard.Id)!;
+        Assert.Equal(Today, h.Date);
+        Assert.Equal(Today.AddDays(-1), h.MissedDeadline);
+        Assert.Equal(DateKind.Flexible, h.DateType);
         Assert.Equal(Today, _svc.Get(today.Id)!.Date);
         Assert.Null(_svc.Get(undated.Id)!.Date);
         Assert.Equal(Today.AddDays(-2), _svc.Get(done.Id)!.Date);
-        // Overdue hard deadline stays visible on Today.
         Assert.Contains(_svc.View(TaskView.Today), t => t.Id == hard.Id);
+
+        // Undo puts the hard deadline back exactly as it was.
+        var move = h.History.Single(e => e.Rollover is not null);
+        _svc.UndoRollover(Actor.User, hard.Id, move.Id);
+        var undone = _svc.Get(hard.Id)!;
+        Assert.Equal(DateKind.Hard, undone.DateType);
+        Assert.Null(undone.MissedDeadline);
+        Assert.Equal(Today.AddDays(-1), undone.Date);
     }
 
     [Fact]
-    public void Third_overdue_cycle_surfaces_a_decision_instead_of_moving()
+    public void After_a_week_of_rolling_it_keeps_rolling_but_asks_you_to_decide()
     {
-        var t = _svc.Add(Actor.User, "Clean garage", priority: Priority.High, date: Today.AddDays(-1));
-
-        _jobs.RunDue();                 // move 1 → tomorrow
-        NextDays(2); _jobs.RunDue();    // overdue again → move 2
-        var second = _svc.Get(t.Id)!;
-        Assert.Equal(2, second.RolloverCount);
-
-        NextDays(2); _jobs.RunDue();    // third overdue cycle: no move
-        var third = _svc.Get(t.Id)!;
-        Assert.Equal(second.Date, third.Date);
-        Assert.Equal(2, third.RolloverCount);
-        Assert.True(_svc.NeedsDecision(third));
+        var t = _svc.Add(Actor.User, "Clean garage", date: Today.AddDays(-1));
+        for (var i = 0; i < 5; i++) { _jobs.RunDue(); NextDays(1); }
+        _jobs.RunDue();                                  // rolling 6 days
+        Assert.False(_svc.NeedsDecision(_svc.Get(t.Id)!));
+        NextDays(1); _jobs.RunDue();                     // 7 days
+        var week = _svc.Get(t.Id)!;
+        Assert.Equal(Today, week.Date);                  // still on today
+        Assert.Equal(7, _svc.DaysRolled(week));
+        Assert.True(_svc.NeedsDecision(week));
         Assert.Contains(_svc.View(TaskView.NeedsMe), x => x.Id == t.Id);
-        Assert.DoesNotContain(_svc.View(TaskView.Today), x => x.Id == t.Id); // no second inbox
 
-        // Pick a date = explicit manual reschedule: resets the count.
+        // Pick a date = explicit manual reschedule: starts over.
         _svc.Edit(Actor.User, t.Id, date: Today.AddDays(7));
         var picked = _svc.Get(t.Id)!;
         Assert.Equal(0, picked.RolloverCount);
         Assert.False(_svc.NeedsDecision(picked));
+    }
+
+    [Fact]
+    public void Old_today_pins_become_dated_today_and_put_on_today_dates_it()
+    {
+        var undated = _svc.Add(Actor.User, "Read report");
+        _svc.Store.Update(Actor.System, d => { d.Tasks.Single(x => x.Id == undated.Id).PinnedToday = true; return true; }); // legacy data
+        _jobs.RunDue();
+        var migrated = _svc.Get(undated.Id)!;
+        Assert.False(migrated.PinnedToday);
+        Assert.Equal(Today, migrated.Date);
+
+        var later = _svc.Add(Actor.User, "Later", date: Today.AddDays(5));
+        _svc.PinToday(Actor.User, later.Id, true);
+        Assert.Equal(Today, _svc.Get(later.Id)!.Date);
+        Assert.Equal(Today, _svc.Add(Actor.User, "New for today", pinToday: true).Date);
     }
 
     [Fact]
@@ -137,7 +153,7 @@ public sealed class TaskRulesTests : IDisposable
         _jobs.RunDue();
 
         var after = _svc.Get(t.Id)!;
-        Assert.Equal(Today.AddDays(-1), after.Date);
+        Assert.Equal(Today, after.Date); // rolling to today is date upkeep, not assistant work
         Assert.False(_svc.EligibleForReview(after, explicitRequest: false));
         Assert.DoesNotContain(_svc.SweepCandidates(10), x => x.Id == t.Id);
         // You can still explicitly ask for a pass.
@@ -242,7 +258,7 @@ public sealed class TaskRulesTests : IDisposable
         Assert.Equal(Today.AddDays(-1), undone.Date);
         Assert.True(undone.RolloverPaused);
         NextDays(1); _svc.RunRollover();
-        Assert.Equal(Today.AddDays(-2), _svc.Get(t.Id)!.Date); // paused: not moved
+        Assert.Equal(Today.AddDays(-2), _svc.Get(t.Id)!.Date); // paused: not rolled
         Assert.True(_svc.NeedsDecision(_svc.Get(t.Id)!));
 
         // A second task: you edit after the move, so Undo is refused.
@@ -283,20 +299,6 @@ public sealed class TaskRulesTests : IDisposable
     }
 
     [Fact]
-    public void Today_pin_is_not_a_date_change_and_clears_when_done()
-    {
-        var t = _svc.Add(Actor.User, "Read report", date: Today.AddDays(5));
-        _svc.PinToday(Actor.User, t.Id, true);
-        var pinned = _svc.Get(t.Id)!;
-        Assert.Equal(Today.AddDays(5), pinned.Date);
-        Assert.Contains(_svc.View(TaskView.Today), x => x.Id == t.Id);
-        Assert.DoesNotContain(_svc.View(TaskView.Upcoming), x => x.Id == t.Id);
-
-        _svc.MarkDone(Actor.User, t.Id);
-        Assert.False(_svc.Get(t.Id)!.PinnedToday);
-    }
-
-    [Fact]
     public void Brief_groups_rollovers_and_appears_only_when_something_matters()
     {
         _clock = new DateTimeOffset(2026, 11, 23, 7, 0, 0, TimeSpan.FromHours(-7));
@@ -311,8 +313,8 @@ public sealed class TaskRulesTests : IDisposable
         Assert.Equal(2, report.Moved);
         Assert.NotNull(report.Brief);
         Assert.Contains("Hard deadline today: Taxes", report.Brief!.Text);
-        Assert.Contains("Moved 2 flexible targets", report.Brief.Text);
-        Assert.Single(report.Brief.Text.Split('\n'), l => l.StartsWith("Moved")); // grouped, one line
+        Assert.Contains("Rolled 2 unfinished to-dos to today", report.Brief.Text);
+        Assert.Single(report.Brief.Text.Split('\n'), l => l.StartsWith("Rolled")); // grouped, one line
         Assert.Null(_jobs.RunDue().Brief); // once per day
     }
 }

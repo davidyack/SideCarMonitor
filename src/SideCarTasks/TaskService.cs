@@ -15,7 +15,11 @@ public enum TaskView { Today, Upcoming, NeedsMe, Done }
 /// </summary>
 public sealed class TaskService
 {
-    public const int MaxAutomaticMoves = 2;
+    /// <summary>After this many days of rolling forward, a to-do asks you to decide (new date, no date, or done).</summary>
+    public const int RollDaysBeforeAsk = 7;
+
+    /// <summary>How many days an open to-do has been rolling forward (0 if it isn't).</summary>
+    public int DaysRolled(TaskItem t) => t.OriginalTarget is { } o && t.Status == TodoStatus.Open ? Math.Max(0, Today.DayNumber - o.DayNumber) : 0;
 
     private readonly TaskStore _store;
     private readonly Func<DateTimeOffset> _now;
@@ -42,10 +46,13 @@ public sealed class TaskService
 
     public IReadOnlyList<TaskItem> All() => _store.Read().Tasks;
 
-    /// <summary>True when an overdue flexible target won't move again on its own and needs your decision.</summary>
+    /// <summary>
+    /// True when a to-do has rolled forward a week (it keeps rolling, but asks you to decide), or you undid a roll
+    /// and it's sitting overdue.
+    /// </summary>
     public bool NeedsDecision(TaskItem t) =>
-        t.Status == TodoStatus.Open && t.DateType == DateKind.Flexible && t.Date is { } d && d < Today
-        && (t.RolloverCount >= MaxAutomaticMoves || t.RolloverPaused);
+        t.Status == TodoStatus.Open &&
+        (DaysRolled(t) >= RollDaysBeforeAsk || (t.RolloverPaused && t.Date is { } d && d < Today));
 
     public bool NeedsMe(TaskItem t) =>
         t.Status == TodoStatus.Open &&
@@ -61,10 +68,8 @@ public sealed class TaskService
         IEnumerable<TaskItem> q = view switch
         {
             TaskView.NeedsMe => tasks.Where(NeedsMe),
-            TaskView.Today => tasks.Where(t => t.Status == TodoStatus.Open && !NeedsMe(t)
-                                               && (t.PinnedToday || (t.Date is { } d && d <= today))),
-            TaskView.Upcoming => tasks.Where(t => t.Status == TodoStatus.Open && !NeedsMe(t) && !t.PinnedToday
-                                                  && (t.Date is null || t.Date > today)),
+            TaskView.Today => tasks.Where(t => t.Status == TodoStatus.Open && !NeedsMe(t) && t.Date is { } d && d <= today),
+            TaskView.Upcoming => tasks.Where(t => t.Status == TodoStatus.Open && !NeedsMe(t) && (t.Date is null || t.Date > today)),
             TaskView.Done => tasks.Where(t => t.Status == TodoStatus.Done),
             _ => [],
         };
@@ -97,9 +102,9 @@ public sealed class TaskService
                 Link = string.IsNullOrWhiteSpace(link) ? null : link.Trim(),
                 LinkLabel = string.IsNullOrWhiteSpace(link) || string.IsNullOrWhiteSpace(linkLabel) ? null : linkLabel.Trim(),
                 Priority = priority,
-                Date = date,
+                // "For today" means dated today (there's no separate Today pin any more).
+                Date = date ?? (pinToday ? Today : null),
                 DateType = date is null ? DateKind.Flexible : dateType,
-                PinnedToday = pinToday,
                 Created = now,
                 Updated = now,
             };
@@ -180,16 +185,12 @@ public sealed class TaskService
         });
     }
 
+    /// <summary>"Put it on today" (the old Today pin): dates the to-do today as a flexible target. Unpinning does nothing.</summary>
     public TaskItem PinToday(Actor actor, string id, bool pinned)
     {
-        RequireUserIntent(actor, "change the Today pin");
-        return Mutate(actor, id, null, t =>
-        {
-            if (t.PinnedToday == pinned) return false;
-            t.PinnedToday = pinned;
-            Log(t, actor, EntryKind.Activity, pinned ? "Put on Today." : "Removed from Today.");
-            return true;
-        });
+        RequireUserIntent(actor, "put a task on today");
+        if (!pinned) return Get(id) ?? throw new TaskRuleException("No such task.");
+        return Edit(actor, id, date: Today, dateType: DateKind.Flexible);
     }
 
     public TaskItem SetAssistantHelp(Actor actor, string id, bool on)
@@ -352,30 +353,62 @@ public sealed class TaskService
     /// and tasks already moved twice (those surface in Needs me). One atomic save covers every move
     /// and its audit entry. Safe to run repeatedly on the same day.
     /// </summary>
-    public IReadOnlyList<RolloverResult> RunRollover()
+    /// <summary>The old "On Today" pin is gone: an undated pinned to-do becomes dated today, once. Safe to call often.</summary>
+    public int MigrateTodayPins()
     {
+        if (!_store.Read().Tasks.Any(t => t.PinnedToday)) return 0;
         var today = Today;
         return _store.Update(Actor.System, d =>
         {
-            var moved = new List<RolloverResult>();
-            foreach (var t in d.Tasks)
+            var n = 0;
+            foreach (var t in d.Tasks.Where(t => t.PinnedToday))
             {
-                if (t.Status != TodoStatus.Open || t.DateType != DateKind.Flexible || t.Date is not { } from) continue;
-                if (from >= today || !t.AssistantHelp || t.RolloverPaused || t.LastRolledOn == today) continue;
-                if (t.RolloverCount >= MaxAutomaticMoves) continue; // leave overdue; NeedsDecision surfaces it
+                t.PinnedToday = false;
+                if (t.Status == TodoStatus.Open && t.Date is null)
+                {
+                    t.Date = today;
+                    Log(t, Actor.System, EntryKind.Activity, $"Was pinned to Today: now dated {today:ddd MMM d}.");
+                    Touch(t);
+                    n++;
+                }
+            }
+            return n;
+        });
+    }
 
-                var to = today.AddDays(t.Priority switch { Priority.High => 1, Priority.Medium => 3, _ => 5 });
+    public IReadOnlyList<RolloverResult> RunRollover()
+    {
+        var today = Today;
+        MigrateTodayPins();
+        return _store.Update(Actor.System, d =>
+        {
+            var moved = new List<RolloverResult>();
+            // Everything still open from an earlier day rolls to today, after today's own to-dos, in its old order.
+            var nextRank = d.Tasks.Where(t => t.Date == today && t.DayRank is not null).Select(t => t.DayRank!.Value).DefaultIfEmpty(-1).Max() + 1;
+            var due = d.Tasks.Where(t => t.Status == TodoStatus.Open && t.Date is { } from && from < today
+                                         && !t.RolloverPaused && t.LastRolledOn != today)
+                             .OrderBy(t => t.Date).ThenBy(t => t.DayRank ?? double.MaxValue).ThenBy(t => t.Priority).ToList();
+            foreach (var t in due)
+            {
+                var from = t.Date!.Value;
+                var wasHard = t.DateType == DateKind.Hard;
                 t.OriginalTarget ??= from;
-                t.Date = to;
+                if (wasHard) { t.MissedDeadline ??= from; t.DateType = DateKind.Flexible; }
+                t.Date = today;
+                t.DayRank = nextRank++;
                 t.RolloverCount++;
                 t.LastRolledOn = today;
                 t.Version++;
                 t.Updated = _now();
+                var days = today.DayNumber - t.OriginalTarget.Value.DayNumber;
                 var entry = NewEntry(Actor.System, EntryKind.Activity,
-                    $"Moved from {from:ddd MMM d} to {to:ddd MMM d}: flexible target passed ({t.Priority.ToString().ToLowerInvariant()} priority, automatic move {t.RolloverCount} of {MaxAutomaticMoves}).");
-                entry.Rollover = new RolloverRecord { From = from, To = to, VersionAfter = t.Version };
+                    $"Rolled from {from:ddd MMM d} to today ({today:ddd MMM d})" +
+                    (wasHard ? $": missed its hard deadline of {from:ddd MMM d}" : "") +
+                    $"; rolling {days} day{(days == 1 ? "" : "s")}" +
+                    (days >= RollDaysBeforeAsk ? ". It's been a week: decide what to do with it." : "."));
+                entry.Rollover = new RolloverRecord { From = from, To = today, VersionAfter = t.Version, WasHard = wasHard };
                 t.History.Add(entry);
-                moved.Add(new RolloverResult(t.Id, t.Title, from, to));
+                moved.Add(new RolloverResult(t.Id, t.Title, from, today));
             }
             return moved;
         });
@@ -397,6 +430,7 @@ public sealed class TaskService
             if (t.Version != e.VersionAfter)
                 throw new TaskRuleException("The task changed after that move, so Undo won't overwrite your newer edit.");
             t.Date = e.From;
+            if (e.WasHard) { t.DateType = DateKind.Hard; if (t.MissedDeadline == e.From) t.MissedDeadline = null; }
             t.RolloverPaused = true;
             e.Undone = true;
             Touch(t);

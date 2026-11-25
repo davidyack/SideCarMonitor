@@ -81,9 +81,13 @@ fun WeekScreen(
     onToggleDone: (TaskRow) -> Unit,
     onOpen: (String) -> Unit,
     onWeek: (Int) -> Unit,
+    needsMe: Int = 0,
+    onList: (String) -> Unit = {},
+    onAdd: (String) -> Unit = {},
     onBack: () -> Unit,
 ) {
     val haptics = LocalHapticFeedback.current
+    var newTitle by remember { mutableStateOf("") }
     val scroll = rememberScrollState()
     val zones = remember { mutableStateMapOf<DropZone, Rect>() }
     val rows = remember { mutableStateMapOf<String, Rect>() }      // each task row's bounds in root
@@ -180,7 +184,26 @@ fun WeekScreen(
             IconButton(onClick = { onWeek(-1) }, modifier = Modifier.size(56.dp)) { Icon(Icons.Filled.ChevronLeft, "Previous week", Modifier.size(32.dp)) }
             IconButton(onClick = { onWeek(1) }, modifier = Modifier.size(56.dp)) { Icon(Icons.Filled.ChevronRight, "Next week", Modifier.size(32.dp)) }
         }
-        Text(if (dragging == null) "Press and hold a task, then drag it to a day. Hold over a day to place it in order."
+        if (dragging == null) {
+            // Needs me / Done one tap away, and a quick add (to today).
+            Row(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Needs me $needsMe", Modifier.clip(RoundedCornerShape(6.dp)).background(if (needsMe > 0) SideCarColors.Crimson else SideCarColors.Panel)
+                    .clickable { onList("needsMe") }.padding(horizontal = 14.dp, vertical = 10.dp), fontSize = 15.sp)
+                Text("Done", Modifier.clip(RoundedCornerShape(6.dp)).background(SideCarColors.Panel)
+                    .clickable { onList("done") }.padding(horizontal = 14.dp, vertical = 10.dp), fontSize = 15.sp)
+                Text("All lists", Modifier.clip(RoundedCornerShape(6.dp)).background(SideCarColors.Panel)
+                    .clickable { onList("upcoming") }.padding(horizontal = 14.dp, vertical = 10.dp), fontSize = 15.sp)
+            }
+            Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.material3.OutlinedTextField(newTitle, { newTitle = it }, Modifier.weight(1f),
+                    placeholder = { Text("Add a to-do for today") }, singleLine = true)
+                Box(Modifier.size(56.dp).clip(RoundedCornerShape(6.dp)).background(SideCarColors.Emerald)
+                    .clickable { if (newTitle.isNotBlank()) { onAdd(newTitle.trim()); newTitle = "" } }, contentAlignment = Alignment.Center) {
+                    Text("+", fontSize = 28.sp)
+                }
+            }
+        }
+        Text(if (dragging == null) "Press and hold a task to drag it. Unfinished to-dos roll to the next day at midnight."
              else "Hold over a day to open it, then drop where it belongs.",
             Modifier.padding(horizontal = 16.dp), color = SideCarColors.Muted, fontSize = 13.sp)
         message?.let { Text(it, Modifier.padding(horizontal = 16.dp), color = SideCarColors.Alert, fontSize = 14.sp) }
@@ -311,9 +334,14 @@ private fun TaskLine(
         }
         Box(Modifier.width(4.dp).height(28.dp).background(when (t.priority) { "High" -> SideCarColors.Crimson; "Medium" -> SideCarColors.Amber; else -> SideCarColors.Steel }))
         Spacer(Modifier.width(10.dp))
-        Text(t.title, Modifier.weight(1f), fontSize = 17.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
-            color = if (done) SideCarColors.Muted else Color.White,
-            textDecoration = if (done) TextDecoration.LineThrough else null)
+        Column(Modifier.weight(1f)) {
+            Text(t.title, fontSize = 17.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                color = if (done) SideCarColors.Muted else if (t.missedDeadline != null) SideCarColors.Alert else Color.White,
+                textDecoration = if (done) TextDecoration.LineThrough else null)
+            val note = listOfNotNull(t.missedDeadline?.let { "Missed deadline $it" },
+                t.rolledDays.takeIf { it > 0 }?.let { "rolled $it day${if (it == 1) "" else "s"}" }).joinToString(" \u00B7 ")
+            if (note.isNotEmpty()) Text(note, fontSize = 12.sp, color = if (t.missedDeadline != null || t.rolledDays >= 7) SideCarColors.Alert else SideCarColors.Muted)
+        }
         if (t.hard) Icon(Icons.Filled.Lock, "Hard deadline (reorder only)", tint = SideCarColors.Alert, modifier = Modifier.size(22.dp))
         else if (!done) Icon(Icons.Filled.DragIndicator, "Hold to drag", tint = SideCarColors.Muted, modifier = Modifier.size(22.dp))
     }

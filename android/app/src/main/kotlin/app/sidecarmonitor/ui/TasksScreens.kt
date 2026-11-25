@@ -58,8 +58,8 @@ private fun priorityColor(p: String) = when (p) {
 /** Today / Upcoming / Needs me / Done, with an add box. Mirrors the kiosk's To-do page. */
 @Composable
 fun TasksScreen(state: UiState, onOpen: (String) -> Unit, onAdd: (String, Boolean) -> Unit, onWeek: () -> Unit,
-                onDismissBrief: () -> Unit = {}, onBack: () -> Unit) {
-    var tab by rememberSaveable { mutableStateOf("today") }
+                onDismissBrief: () -> Unit = {}, initialTab: String = "today", onBack: () -> Unit) {
+    var tab by rememberSaveable(initialTab) { mutableStateOf(initialTab) }
     var newTitle by remember { mutableStateOf("") }
     val views = state.tasks?.views
     val rows = when (tab) {
@@ -189,7 +189,6 @@ fun TaskDetailScreen(state: UiState, onAction: (String, Map<String, Any?>) -> Un
                 }
             }
 
-            SwitchRow("On Today", t.pinned) { onAction(if (it) "pin" else "unpin", emptyMap()) }
             SwitchRow("Let assistant help", t.help) { onAction(if (it) "help_on" else "help_off", emptyMap()) }
 
             ActionRow(listOf("Take a pass" to "take_pass", if (t.status == "Done") "Reopen" to "reopen" else "Mark done" to "done"), onAction)

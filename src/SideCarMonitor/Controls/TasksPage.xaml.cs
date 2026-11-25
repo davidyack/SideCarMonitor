@@ -106,9 +106,11 @@ public sealed partial class TasksPage : UserControl
         Refresh();
     }
 
+    /// <summary>The To-do tile opens the weekly plan (the main view); a task link opens that task.</summary>
     public void Show(string? taskId = null)
     {
-        if (taskId is not null) { _selectedId = taskId; _dirty = false; }
+        if (taskId is not null) { _selectedId = taskId; _dirty = false; Refresh(); return; }
+        SetWeekMode(true);
         Refresh();
     }
 
@@ -213,10 +215,13 @@ public sealed partial class TasksPage : UserControl
         {
             var text = new TextBlock
             {
-                Text = (t.DateType == DateKind.Hard ? "\U0001F512 " : "") + t.Title, TextWrapping = TextWrapping.Wrap,
+                Text = (t.DateType == DateKind.Hard ? "\U0001F512 " : "") + t.Title +
+                       (t.MissedDeadline is { } md ? $"  \u00B7 missed {md:ddd}" : "") +
+                       (_tasks!.DaysRolled(t) is var rd && rd > 0 ? $"  \u00B7 rolled {rd}d" : ""),
+                TextWrapping = TextWrapping.Wrap,
                 FontSize = Num("FontCaption"),
                 TextDecorations = t.Status == TodoStatus.Done ? Windows.UI.Text.TextDecorations.Strikethrough : Windows.UI.Text.TextDecorations.None,
-                Foreground = t.Status == TodoStatus.Done ? Res("MutedText") : Res("KioskForeground"),
+                Foreground = t.Status == TodoStatus.Done ? Res("MutedText") : t.MissedDeadline is not null ? Res("AlertBrush") : Res("KioskForeground"),
             };
             var row = new Border
             {
@@ -293,7 +298,8 @@ public sealed partial class TasksPage : UserControl
         });
         var bits = new List<string>();
         if (t.Date is { } d) bits.Add($"{(t.DateType == DateKind.Hard ? "Due " : "")}{d:ddd MMM d}{(overdue ? " · overdue" : "")}");
-        if (t.PinnedToday) bits.Add("On Today");
+        if (t.MissedDeadline is { } md) bits.Add($"MISSED deadline {md:ddd MMM d}");
+        if (_tasks.DaysRolled(t) is var rolled && rolled > 0) bits.Add($"rolled {rolled} day{(rolled == 1 ? "" : "s")}");
         if (t.Deliverable.Current is not null) bits.Add($"Draft v{t.Deliverable.Current.Number}");
         if (t.PendingQuestionId is not null) bits.Add("Question for you");
         if (t.Deliverable.PendingRevision is not null) bits.Add("Revision to review");
@@ -302,7 +308,7 @@ public sealed partial class TasksPage : UserControl
         text.Children.Add(new TextBlock
         {
             Text = string.Join(" · ", bits), FontSize = Num("FontCaption"),
-            Foreground = (Brush)Application.Current.Resources[overdue && t.DateType == DateKind.Hard ? "AlertBrush" : "MutedText"],
+            Foreground = (Brush)Application.Current.Resources[(overdue && t.DateType == DateKind.Hard) || t.MissedDeadline is not null ? "AlertBrush" : "MutedText"],
         });
         grid.Children.Add(text);
         return new ListViewItem { Content = grid, Tag = t.Id };
@@ -434,11 +440,10 @@ public sealed partial class TasksPage : UserControl
         Grid.SetColumn(clear, 1);
         dateRow.Children.Add(clear);
         Detail.Children.Add(dateRow);
-        _hardSwitch = Toggle("Hard deadline (never moves on its own)", t.DateType == DateKind.Hard, _ => _dirty = true);
+        _hardSwitch = Toggle("Hard deadline (if missed, it rolls to today in red)", t.DateType == DateKind.Hard, _ => _dirty = true);
         Detail.Children.Add(_hardSwitch);
 
         // Pins and switches (save immediately)
-        Detail.Children.Add(Toggle("On Today", t.PinnedToday, on => Do(() => _tasks.PinToday(Actor.User, t.Id, on))));
         Detail.Children.Add(Toggle("Let assistant help", t.AssistantHelp, on => Do(() => _tasks.SetAssistantHelp(Actor.User, t.Id, on))));
 
         // Actions

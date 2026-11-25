@@ -29,6 +29,10 @@ data class TaskRow(
     val dateLabel: String? = null,
     val hard: Boolean = false,
     val pinned: Boolean = false,
+    /** The hard deadline it missed (it rolls to today, shown in red). */
+    val missedDeadline: String? = null,
+    /** Days it has been rolling forward to the next day. */
+    val rolledDays: Int = 0,
     val help: Boolean = true,
     val overdue: Boolean = false,
     val needsMe: Boolean = false,

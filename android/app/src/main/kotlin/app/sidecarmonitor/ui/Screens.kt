@@ -158,7 +158,7 @@ fun HomeScreen(state: UiState, vm: app.sidecarmonitor.AppViewModel, onOpen: (Scr
         val needs = todo?.needsMe.orEmpty()
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Tile(if (needs.isNotEmpty()) SideCarColors.Crimson else SideCarColors.Emerald, Modifier.weight(1.4f).height(130.dp),
-                onClick = { onOpen(Screen.Tasks) }, icon = Icons.Filled.Checklist,
+                onClick = { onOpen(Screen.Week) }, icon = Icons.Filled.Checklist,
                 value = (todo?.today?.size ?: 0).toString(),
                 detail = if (needs.isNotEmpty()) "${needs.size} need${if (needs.size == 1) "s" else ""} you"
                          else todo?.today?.firstOrNull()?.title ?: "Nothing for today",

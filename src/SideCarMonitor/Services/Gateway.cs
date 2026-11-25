@@ -640,7 +640,9 @@ public sealed class Gateway : IAsyncDisposable
         date = x.Date?.ToString("yyyy-MM-dd"),
         dateLabel = x.Date?.ToString("ddd MMM d"),
         hard = x.DateType == SideCarTasks.DateKind.Hard,
-        pinned = x.PinnedToday,
+        pinned = false, // the Today pin is gone: today means dated today
+        missedDeadline = x.MissedDeadline?.ToString("ddd MMM d"),
+        rolledDays = t.DaysRolled(x),
         help = x.AssistantHelp,
         overdue = t.IsOverdue(x),
         needsMe = t.NeedsMe(x),
