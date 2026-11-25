@@ -79,6 +79,7 @@ fun LinkedInScreen(vm: AppViewModel, onBack: () -> Unit) {
             val i = info
             TabChip("Signal ${i?.signal?.size ?: 0}", tab == "signal") { tab = "signal" }
             TabChip("Noise ${i?.noise?.size ?: 0}", tab == "noise") { tab = "noise" }
+            TabChip("Ideas", tab == "ideas") { tab = "ideas" }
             TabChip("Sources ${i?.sources?.count { !it.suppressed } ?: 0}", tab == "sources") { tab = "sources" }
             Spacer(Modifier.weight(1f))
             TabChip("Run now", false, LinkedInBlue) { scope.launch { vm.linkedInRun(); delay(1500); reload() } }
@@ -88,6 +89,7 @@ fun LinkedInScreen(vm: AppViewModel, onBack: () -> Unit) {
         info?.health?.takeIf { it.isNotBlank() }?.let {
             Text(it, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 6.dp), color = Color(0xFF6CB4FF), fontSize = 13.sp)
         }
+        if (tab == "ideas") { IdeasList(vm); return@Column }
         if (tab == "sources") {
             LazyColumn(Modifier.padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 item {

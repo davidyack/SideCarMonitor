@@ -89,6 +89,7 @@ fun XScreen(vm: AppViewModel, onBack: () -> Unit) {
             Chip("Signal ${i?.signal?.size ?: 0}", tab == "signal") { tab = "signal" }
             Chip("Noise ${i?.noise?.size ?: 0}", tab == "noise") { tab = "noise" }
             Chip("Saved ${i?.saved?.size ?: 0}", tab == "saved") { tab = "saved" }
+            Chip("Ideas", tab == "ideas") { tab = "ideas" }
             Chip("Sources", tab == "sources") { tab = "sources" }
             Spacer(Modifier.weight(1f))
             Chip("↻ Update", false, SideCarColors.Cobalt) { scope.launch { vm.kiosk?.xUpdate(); note = "Updating on the kiosk…"; delay(2000); reload() } }
@@ -97,6 +98,7 @@ fun XScreen(vm: AppViewModel, onBack: () -> Unit) {
         info?.health?.takeIf { it.isNotBlank() }?.let {
             Text(it, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 6.dp), color = Color(0xFF6CB4FF), fontSize = 13.sp)
         }
+        if (tab == "ideas") { IdeasList(vm); return@Column }
         if (tab == "sources") {
             LazyColumn(Modifier.padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 item { Text("Accounts that fill your timeline without signal. Unfollow asks you to confirm.", fontSize = 13.sp, color = SideCarColors.Muted) }

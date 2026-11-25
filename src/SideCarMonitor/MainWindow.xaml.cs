@@ -534,6 +534,26 @@ public sealed partial class MainWindow : Window
         ClockTile.Background = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources[soon ? "TileAmber" : "PanelBackground"];
     }
 
+    // ---- Idea radar: look at newly read posts every 10 minutes (the first time, everything stored) ----
+    private IdeaRadar? _ideas;
+    private DateTime _lastIdeaCheck = DateTime.Now.AddMinutes(-9); // first look about a minute after start
+
+    private void CheckIdeas()
+    {
+        if (_ideas is null || _ideas.Busy || DateTime.Now - _lastIdeaCheck < TimeSpan.FromMinutes(10)) return;
+        _lastIdeaCheck = DateTime.Now;
+        var since = DateTime.Now.AddDays(-14);
+        var posts = new List<IdeaRadar.Post>();
+        if (_linkedIn is { } li)
+            posts.AddRange(li.State.Posts.Values.Where(p => !p.FromProfile && !p.Promoted && p.FirstSeen >= since)
+                .Select(p => new IdeaRadar.Post("linkedin", p.Id, p.Author, p.Text, p.Link, p.FirstSeen)));
+        if (_x is { } x)
+            posts.AddRange(x.State.Posts.Values.Where(p => p.FirstSeen >= since)
+                .Select(p => new IdeaRadar.Post("x", p.Id, p.Author, p.Text, p.Link, p.Created)));
+        var radar = _ideas;
+        _ = Task.Run(() => radar.CatchUpAsync(posts));
+    }
+
     private MeetingPrep? _meetingPrep;
     private DateTime _lastMeetingCheck;
     private void CheckMeetings()
@@ -1068,6 +1088,7 @@ public sealed partial class MainWindow : Window
         CheckReminders();
         CheckBriefs();
         CheckMeetings();
+        CheckIdeas();
         CheckLinkedInSchedule();
         if (HomePage.Visibility == Visibility.Visible) RefreshHouseTile();
         UpdateWeatherStatus();
@@ -1197,6 +1218,19 @@ public sealed partial class MainWindow : Window
         if (_x is not null) _x.Changed += () => DispatcherQueue.TryEnqueue(UpdateXTile);
         UpdateXTile();
         LinkedInView.Initialize(_linkedIn);
+        // Idea radar: PMCollab opportunities and wild ideas from the feeds (needs %APPDATA%\SideCarMonitor\pmcollab-profile.md).
+        var profilePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SideCarMonitor", "pmcollab-profile.md");
+        if (_agent is not null && File.Exists(profilePath))
+        {
+            _ideas = new IdeaRadar(_agent, File.ReadAllText(profilePath)) { Tasks = _taskService };
+            _ideas.Changed += () => DispatcherQueue.TryEnqueue(() =>
+            {
+                if (LinkedInView.Visibility == Visibility.Visible) LinkedInView.Show();
+                if (XView.Visibility == Visibility.Visible) XView.Show();
+            });
+            LinkedInView.Ideas = _ideas;
+            XView.Ideas = _ideas;
+        }
         LinkedInView.HomeRequested += ShowHome;
         _linkedIn.Changed += () => DispatcherQueue.TryEnqueue(UpdateLinkedInTile);
         UpdateLinkedInTile();
@@ -1718,6 +1752,7 @@ public sealed partial class MainWindow : Window
             _gateway.CalendarTools = _calendarTools;
             _gateway.Briefs = _briefs;
             _gateway.MeetingPrep = _meetingPrep;
+            _gateway.Ideas = _ideas;
             _gateway.Forecast = () => WeatherForecastForAgent(12, 6, 0);
             if (_voice is { } voice) _gateway.Synthesize = text => voice.SynthesizeWavAsync(text, CancellationToken.None);
             _gateway.ClearActivity = () => DispatcherQueue.TryEnqueue(() =>

@@ -24,6 +24,9 @@ public sealed partial class XPage : UserControl
 
     public XPage() => InitializeComponent();
 
+    /// <summary>The idea radar (Ideas tab), set by the window.</summary>
+    public IdeaRadar? Ideas { get; set; }
+
     public void Initialize(XFeed? feed)
     {
         _feed = feed;
@@ -73,7 +76,7 @@ public sealed partial class XPage : UserControl
         UpdateSubtitle();
         HealthText.Text = _feed.HealthLine();
         Tabs.Children.Clear();
-        foreach (var (tag, label, count) in new[] { ("signal", "Signal", _feed.Signal.Count()), ("noise", "Noise", _feed.Noise.Count()), ("saved", "Saved", _feed.SavedPosts.Count()) })
+        foreach (var (tag, label, count) in new[] { ("signal", "Signal", _feed.Signal.Count()), ("noise", "Noise", _feed.Noise.Count()), ("saved", "Saved", _feed.SavedPosts.Count()), ("ideas", "Ideas", IdeaCards.Count(Ideas)) })
         {
             var b = new Button
             {
@@ -84,6 +87,14 @@ public sealed partial class XPage : UserControl
             Tabs.Children.Add(b);
         }
         PostsPanel.Children.Clear();
+        if (_tab == "ideas")
+        {
+            IdeaCards.Render(PostsPanel, Ideas, () => Render(true));
+            if (keepScroll) ListScroll.ChangeView(null, offset, null, true);
+            RenderSide();
+            RenderBriefingBar();
+            return;
+        }
         var list = (_tab switch { "noise" => _feed.Noise, "saved" => _feed.SavedPosts, _ => _feed.Signal }).Take(80).ToList();
         foreach (var p in list) PostsPanel.Children.Add(PostCard(p));
         if (list.Count == 0)

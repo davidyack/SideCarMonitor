@@ -22,6 +22,9 @@ public sealed partial class LinkedInPage : UserControl
 
     public LinkedInPage() => InitializeComponent();
 
+    /// <summary>The idea radar (Ideas tab), set by the window.</summary>
+    public IdeaRadar? Ideas { get; set; }
+
     public void Initialize(LinkedInFeed? feed)
     {
         _feed = feed;
@@ -66,15 +69,17 @@ public sealed partial class LinkedInPage : UserControl
         SignalTab.Content = $"Signal {signal.Count}";
         NoiseTab.Content = $"Noise {noise.Count}";
         SourcesTab.Content = $"Sources {sources.Count(s => !s.Suppressed)}";
+        IdeasTab.Content = $"Ideas {IdeaCards.Count(Ideas)}";
+        IdeasTab.Background = Res<Brush>(_tab == "ideas" ? "TileCobalt" : "PanelBackground");
         SignalTab.Background = Res<Brush>(_tab == "signal" ? "TileCobalt" : "PanelBackground");
         NoiseTab.Background = Res<Brush>(_tab == "noise" ? "TileCobalt" : "PanelBackground");
         SourcesTab.Background = Res<Brush>(_tab == "sources" ? "TileCobalt" : "PanelBackground");
         HealthText.Text = _feed.Health().ToString();
 
         PostsPanel.Children.Clear();
-        if (_tab == "sources")
+        if (_tab is "sources" or "ideas")
         {
-            RenderSources(sources);
+            if (_tab == "ideas") IdeaCards.Render(PostsPanel, Ideas, () => Render(keepScroll: true)); else RenderSources(sources);
             if (keepScroll) ListScroll.ChangeView(null, offset, null, disableAnimation: true);
             if (_profileUrl is not null) RenderProfile(_profileUrl); else RenderDigest();
             RenderBriefingBar();

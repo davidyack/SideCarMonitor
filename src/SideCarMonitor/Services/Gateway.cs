@@ -164,6 +164,7 @@ public sealed class Gateway : IAsyncDisposable
     }
 
     public MeetingPrep? MeetingPrep { get; set; }
+    public IdeaRadar? Ideas { get; set; }
     /// <summary>Forecast for the phone (highlights, hours, days), set by the window.</summary>
     public Func<object?>? Forecast { get; set; }
 
@@ -187,6 +188,28 @@ public sealed class Gateway : IAsyncDisposable
                     prep = MeetingPrep?.Find(e) is { } p ? VoiceService.PlainText(p.Text) : "",
                 }),
             });
+        });
+        // Idea radar: ranked PMCollab opportunities and wild ideas, with Make to-do / Not useful.
+        app.MapGet("/api/ideas", (string? filter) =>
+        {
+            if (Ideas is not { } r) return Results.Json(new { available = false });
+            return Results.Json(new
+            {
+                available = true, busy = r.Busy, lastRun = r.Data.LastRun, lastResult = r.Data.LastResult,
+                ideas = r.Ranked(filter ?? "all").Take(60).Select(i => new
+                {
+                    i.Id, i.Kind, i.KindLabel, i.Title, i.Pitch, i.Why, i.WhoPays, i.Smallest, i.Effort, i.Score, i.Status, pmcollab = i.IsPmCollab,
+                    sources = i.Evidence.Select(e => e.Author).Distinct().Count(),
+                    evidence = i.Evidence.Take(4).Select(e => new { e.Source, e.Author, e.Quote, e.Link, at = e.At }),
+                }),
+            });
+        });
+        app.MapPost("/api/ideas/{id}/action", (string id, JsonObject b) =>
+        {
+            if (Ideas is not { } r) return Results.NotFound();
+            if (b["action"]?.GetValue<string>() == "dismiss") { r.Dismiss(id); return Results.Ok(new { ok = true }); }
+            var error = r.MakeTask(id);
+            return error is null ? Results.Ok(new { ok = true }) : Results.Json(new { error }, statusCode: 400);
         });
         app.MapGet("/api/weather/forecast", () => Results.Json(Forecast?.Invoke() ?? new { error = "No forecast" }));
     }

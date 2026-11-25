@@ -130,6 +130,19 @@ data class XInfo(
 )
 
 @Serializable
+data class IdeaEvidence(val source: String = "", val author: String = "", val quote: String = "", val link: String = "", val at: String = "")
+
+@Serializable
+data class IdeaInfo(
+    val id: String = "", val kind: String = "", val kindLabel: String = "", val title: String = "", val pitch: String = "", val why: String = "",
+    val whoPays: String = "", val smallest: String = "", val effort: String = "", val score: Int = 0, val status: String = "",
+    val pmcollab: Boolean = false, val sources: Int = 0, val evidence: List<IdeaEvidence> = emptyList(),
+)
+
+@Serializable
+data class IdeasInfo(val available: Boolean = false, val busy: Boolean = false, val lastResult: String = "", val ideas: List<IdeaInfo> = emptyList())
+
+@Serializable
 data class LiSource(val author: String = "", val headline: String = "", val posts: Int = 0, val signal: Int = 0, val ads: Int = 0, val suppressed: Boolean = false)
 
 @Serializable
@@ -280,6 +293,12 @@ class SideCarClient(private val pairing: Pairing) {
             json.parseToJsonElement(it.body.string()).jsonObject["reply"]?.jsonPrimitive?.content ?: "Saved"
         }
     }
+
+    // ---- Idea radar ----
+    suspend fun ideas(filter: String): IdeasInfo = withContext(Dispatchers.IO) {
+        call(Request.Builder().url("$base/api/ideas?filter=$filter").build()).use { json.decodeFromString(it.body.string()) }
+    }
+    suspend fun ideaAction(id: String, action: String) = postJson("/api/ideas/$id/action", buildJsonObject { put("action", action) })
 
     // ---- Meetings, forecast, LinkedIn suppress ----
     suspend fun meetings(): MeetingsInfo = withContext(Dispatchers.IO) { call(Request.Builder().url("$base/api/meetings").build()).use { json.decodeFromString(it.body.string()) } }
