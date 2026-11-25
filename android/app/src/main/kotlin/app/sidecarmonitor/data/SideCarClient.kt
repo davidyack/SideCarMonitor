@@ -151,6 +151,15 @@ data class IdeasInfo(val available: Boolean = false, val busy: Boolean = false, 
                      val pmcollab: Boolean = false)
 
 @Serializable
+data class FeedSummary(val signal: Int = 0, val newest: String? = null)
+
+@Serializable
+data class HouseSummary(val paused: String? = null, val lightsOn: Int = 0, val lights: Int = 0, val locks: Int = 0, val unlocked: List<String> = emptyList())
+
+@Serializable
+data class HomeSummary(val x: FeedSummary? = null, val linkedin: FeedSummary? = null, val house: HouseSummary? = null, val weatherNext: String? = null)
+
+@Serializable
 data class LiSource(val author: String = "", val headline: String = "", val posts: Int = 0, val signal: Int = 0, val ads: Int = 0, val suppressed: Boolean = false)
 
 @Serializable
@@ -165,8 +174,18 @@ data class MeetingsInfo(val available: Boolean = false, val leadMinutes: Int = 3
 
 @Serializable
 data class ForecastInfo(
-    val updated: String = "", val highlights: List<String> = emptyList(), val hours: List<String> = emptyList(),
+    val updated: String = "", val station: String = "", val highlights: List<String> = emptyList(), val hours: List<String> = emptyList(),
     val days: List<String> = emptyList(), val error: String? = null,
+    val hourly: List<ForecastHour> = emptyList(), val daily: List<ForecastDay> = emptyList(),
+)
+
+@Serializable
+data class ForecastHour(val time: String = "", val icon: String = "", val temp: String = "", val conditions: String = "", val rain: String = "", val wind: String = "")
+
+@Serializable
+data class ForecastDay(
+    val day: String = "", val date: String = "", val icon: String = "", val conditions: String = "", val high: String = "", val low: String = "",
+    val highC: Double? = null, val lowC: Double? = null, val rain: String = "", val sunrise: String? = null, val sunset: String? = null,
 )
 
 @Serializable
@@ -373,6 +392,8 @@ class SideCarClient(private val pairing: Pairing) {
             "Tag saved; it'll reach the kiosk when it's back in reach"
         }
     }
+
+    suspend fun summary(): HomeSummary = withContext(Dispatchers.IO) { call(Request.Builder().url("$base/api/summary").build()).use { json.decodeFromString(it.body.string()) } }
 
     // ---- Idea radar ----
     suspend fun ideas(filter: String): IdeasInfo = withContext(Dispatchers.IO) {

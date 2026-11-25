@@ -1352,6 +1352,38 @@ public sealed partial class MainWindow : Window
         return Math.Clamp(n, min, max);
     }
 
+    /// <summary>The phone's weather page: next 24 hours and 10 days as display-ready values (same icons as the kiosk).</summary>
+    private object? WeatherForPhone()
+    {
+        if (_wxCloud?.Outlook is not { } o) return new { error = _wxCloud is null ? "The forecast isn't set up." : "No forecast yet." };
+        var thisHour = DateTime.Now.Date.AddHours(DateTime.Now.Hour);
+        var hours = o.Hourly.Where(h => h.Time >= thisHour).Take(24).ToList();
+        var days = o.Daily.Take(10).ToList();
+        return new
+        {
+            updated = o.FetchedAt.ToString("h:mm tt"),
+            station = o.StationName,
+            highlights = hours.Count > 0 ? ForecastHighlights(hours.Take(24).ToList()) : [],
+            hourly = hours.Select((h, i) => new
+            {
+                time = i == 0 ? "Now" : h.Time.ToString("h tt").ToLowerInvariant(),
+                icon = WeatherForecastView.Icon(h.Icon), temp = _wx.Temp(h.TempC), conditions = h.Conditions,
+                rain = h.PrecipProbability >= 10 ? $"{h.PrecipProbability}%" : "",
+                wind = _wx.Speed(h.WindAvgMs),
+            }),
+            daily = days.Select((d, i) => new
+            {
+                day = i == 0 ? "Today" : d.Date.ToString("ddd"), date = d.Date.ToString("MMM d"),
+                icon = WeatherForecastView.Icon(d.Icon), conditions = d.Conditions,
+                high = _wx.Temp(d.HighC), low = _wx.Temp(d.LowC), highC = d.HighC, lowC = d.LowC,
+                rain = d.PrecipProbability >= 10 ? $"{d.PrecipProbability}%" : "",
+                sunrise = d.Sunrise?.ToString("h:mm tt"), sunset = d.Sunset?.ToString("h:mm tt"),
+            }),
+            hours = hours.Take(12).Select(ForecastHourLine),
+            days = days.Take(6).Select(ForecastDayLine),
+        };
+    }
+
     /// <summary>Forecast (hour by hour and by day) and the station's recent hours, for the get_weather_forecast tool.</summary>
     private object WeatherForecastForAgent(int hours, int days, int pastHours)
     {
@@ -1525,26 +1557,40 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>The tile's look-ahead: the next thing worth knowing in the coming 12 hours, else today's high or tonight's low.</summary>
+    /// <summary>
+    /// The next significant weather change in the coming 12 hours, for the kiosk and phone weather tiles:
+    /// rain/snow likely, then freezing, strong gusts, a big temperature swing ("Down to 30° by 4 pm"), else today's high
+    /// or tonight's low. Null when there's no fresh forecast.
+    /// </summary>
+    private string? NextWeatherChange(WeatherOutlook? o, DateTime now)
+    {
+        if (o is null || now - o.FetchedAt >= TimeSpan.FromHours(6)) return null;
+        var thisHour = now.Date.AddHours(now.Hour);
+        var soon = o.Hourly.Where(h => h.Time > thisHour && h.Time <= thisHour.AddHours(12)).ToList();
+        var cfg = _settings.Weather.Alerts;
+        var precip = soon.FirstOrDefault(h => h.PrecipProbability >= Math.Max(30, cfg.PrecipChancePercent));
+        if (precip is not null)
+        {
+            var type = precip.PrecipType.Length > 0 ? char.ToUpperInvariant(precip.PrecipType[0]) + precip.PrecipType[1..] : "Rain";
+            return $"{type} likely {precip.Time:h tt}";
+        }
+        var nowTemp = o.Hourly.FirstOrDefault(h => h.Time >= thisHour)?.TempC;
+        if (nowTemp > 0 && soon.FirstOrDefault(h => h.TempC <= 0) is { } freeze)
+            return $"Freezing by {freeze.Time:h tt} ({_wx.Temp(freeze.TempC)})";
+        var gusty = soon.Where(h => h.WindGustMs * 2.23694 >= (cfg.GustMph > 0 ? cfg.GustMph : 20)).MaxBy(h => h.WindGustMs);
+        if (gusty is not null) return $"Gusts to {_wx.Speed(gusty.WindGustMs)} {gusty.Time:h tt}";
+        // A swing of about 10 °F or more: the extreme and when.
+        if (nowTemp is double t0 && soon.Where(h => h.TempC is not null).MaxBy(h => Math.Abs(h.TempC!.Value - t0)) is { } swing
+            && Math.Abs(swing.TempC!.Value - t0) >= 5.5)
+            return $"{(swing.TempC < t0 ? "Down" : "Up")} to {_wx.Temp(swing.TempC)} by {swing.Time:h tt}";
+        if (o.Daily.FirstOrDefault(d => d.Date == now.Date) is { } today)
+            return now.Hour < 15 ? $"High {_wx.Temp(today.HighC)} today" : $"Low {_wx.Temp(o.Daily.ElementAtOrDefault(1)?.LowC ?? today.LowC)} tonight";
+        return null;
+    }
+
     private void UpdateWeatherTileNext(WeatherOutlook? o, DateTime now)
     {
-        string? text = null;
-        if (o is not null && now - o.FetchedAt < TimeSpan.FromHours(6))
-        {
-            var thisHour = now.Date.AddHours(now.Hour);
-            var soon = o.Hourly.Where(h => h.Time > thisHour && h.Time <= thisHour.AddHours(12)).ToList();
-            var cfg = _settings.Weather.Alerts;
-            var precip = soon.FirstOrDefault(h => h.PrecipProbability >= Math.Max(30, cfg.PrecipChancePercent));
-            var gusty = soon.Where(h => h.WindGustMs * 2.23694 >= (cfg.GustMph > 0 ? cfg.GustMph : 20)).MaxBy(h => h.WindGustMs);
-            if (precip is not null)
-            {
-                var type = precip.PrecipType.Length > 0 ? char.ToUpperInvariant(precip.PrecipType[0]) + precip.PrecipType[1..] : "Rain";
-                text = $"{type} likely {precip.Time:h tt}";
-            }
-            else if (gusty is not null)
-                text = $"Gusts to {_wx.Speed(gusty.WindGustMs)} {gusty.Time:h tt}";
-            else if (o.Daily.FirstOrDefault(d => d.Date == now.Date) is { } today)
-                text = now.Hour < 15 ? $"High {_wx.Temp(today.HighC)} today" : $"Low {_wx.Temp(o.Daily.ElementAtOrDefault(1)?.LowC ?? today.LowC)} tonight";
-        }
+        var text = NextWeatherChange(o, now);
         WeatherTileNext.Text = text ?? "";
         WeatherTileNext.Visibility = text is null ? Visibility.Collapsed : Visibility.Visible;
     }
@@ -1781,7 +1827,8 @@ public sealed partial class MainWindow : Window
             _gateway.Briefs = _briefs;
             _gateway.MeetingPrep = _meetingPrep;
             _gateway.Ideas = _ideas;
-            _gateway.Forecast = () => WeatherForecastForAgent(12, 6, 0);
+            _gateway.Forecast = WeatherForPhone;
+            _gateway.WeatherNext = () => NextWeatherChange(_wxCloud?.Outlook, DateTime.Now);
             if (_voice is { } voice) _gateway.Synthesize = text => voice.SynthesizeWavAsync(text, CancellationToken.None);
             _gateway.ClearActivity = () => DispatcherQueue.TryEnqueue(() =>
             {

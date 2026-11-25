@@ -167,6 +167,8 @@ public sealed class Gateway : IAsyncDisposable
 
     public MeetingPrep? MeetingPrep { get; set; }
     public IdeaRadar? Ideas { get; set; }
+    /// <summary>The next significant weather change ("Down to 30° by 4 pm"), set by the window.</summary>
+    public Func<string?>? WeatherNext { get; set; }
     /// <summary>Forecast for the phone (highlights, hours, days), set by the window.</summary>
     public Func<object?>? Forecast { get; set; }
 
@@ -444,6 +446,34 @@ public sealed class Gateway : IAsyncDisposable
         MapCalendar(app);
         MapBriefs(app);
         MapMeetingsAndWeather(app);
+        // What the phone's home tiles show: unread signal and the newest one per feed, and the house at a glance.
+        app.MapGet("/api/summary", async () =>
+        {
+            static string Snip(string author, string text) { var t = text.ReplaceLineEndings(" ").Trim(); return $"{author}: {(t.Length > 70 ? t[..70] + "\u2026" : t)}"; }
+            object? house = null;
+            if (Home is { } home)
+            {
+                try
+                {
+                    var devices = await home.DevicesAsync();
+                    var locks = devices.Where(d => d.Domain == "lock").ToList();
+                    house = new
+                    {
+                        paused = home.PausedReason,
+                        lightsOn = devices.Count(d => d.Domain == "light" && d.IsOn), lights = devices.Count(d => d.Domain == "light"),
+                        locks = locks.Count, unlocked = locks.Where(d => d.State == "unlocked").Select(d => d.Name).ToList(),
+                    };
+                }
+                catch { /* house unreachable: the tile keeps its label */ }
+            }
+            return Results.Json(new
+            {
+                x = X is { } x ? new { signal = x.Signal.Count(), newest = x.Signal.FirstOrDefault() is { } p ? Snip(p.Author, p.Text) : null } : null,
+                linkedin = LinkedIn is { } li ? new { signal = li.Signal.Count(), newest = li.Signal.FirstOrDefault() is { } q ? Snip(q.Author, q.Text) : null } : null,
+                house,
+                weatherNext = WeatherNext?.Invoke(),
+            });
+        });
         // A chat message the phone queued while it couldn't reach the kiosk: one user turn, the reply returned.
         app.MapPost("/api/ask", async (JsonObject b) =>
         {

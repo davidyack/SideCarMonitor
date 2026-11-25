@@ -106,6 +106,9 @@ fun HomeScreen(state: UiState, vm: app.sidecarmonitor.AppViewModel, onOpen: (Scr
         .minByOrNull { it.second }
     val untilMin = next?.let { java.time.Duration.between(nowInstant, it.second).toMinutes() }
     val meetingSoon = untilMin != null && untilMin <= 15 && untilMin > -5
+    // X, LinkedIn and House tiles: real numbers (unread signal and the newest post; lights on and any unlocked doors).
+    var summary by remember { mutableStateOf<app.sidecarmonitor.data.HomeSummary?>(null) }
+    LaunchedEffect(state.connected) { while (true) { runCatching { vm.kiosk?.summary() }.getOrNull()?.let { summary = it }; delay(120_000) } }
     // Ideas tile: count of new ideas and the best one's title.
     var ideas by remember { mutableStateOf<app.sidecarmonitor.data.IdeasInfo?>(null) }
     LaunchedEffect(state.connected) { while (true) { runCatching { vm.kiosk?.ideas("all") }.getOrNull()?.let { ideas = it }; delay(300_000) } }
@@ -141,7 +144,7 @@ fun HomeScreen(state: UiState, vm: app.sidecarmonitor.AppViewModel, onOpen: (Scr
             }
             Tile(SideCarColors.Amber, Modifier.weight(1f).aspectRatio(1f), onClick = { onOpen(Screen.Weather) },
                 icon = Icons.Filled.Thermostat, value = weather.str("temperature") ?: "--",
-                detail = weather.str("condition") ?: "", label = "Weather")
+                detail = summary?.weatherNext ?: weather.str("condition") ?: "", label = "Weather")
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Tile(SideCarColors.Cobalt, Modifier.weight(2f).height(150.dp), onClick = { onOpen(Screen.Cameras) },
@@ -149,16 +152,25 @@ fun HomeScreen(state: UiState, vm: app.sidecarmonitor.AppViewModel, onOpen: (Scr
                 value = if (cams.isEmpty()) "--" else "${cams.count { it.live }}/${cams.size}",
                 detail = "live", label = "Cameras")
             Tile(SideCarColors.Teal, Modifier.weight(1f).height(150.dp), onClick = { onOpen(Screen.House) },
-                icon = Icons.Filled.Home, value = "", detail = "Lights, scripts", label = "House")
+                icon = Icons.Filled.Home, value = summary?.house?.lightsOn?.toString() ?: "",
+                detail = summary?.house?.let { h ->
+                    when {
+                        h.paused != null -> "Home control paused"
+                        h.unlocked.isNotEmpty() -> "Unlocked: ${h.unlocked.joinToString()}"
+                        else -> "${h.lightsOn} of ${h.lights} lights on" + if (h.locks > 0) " \u00B7 all locked" else ""
+                    }
+                } ?: "Lights, scripts", label = "House")
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Tile(if (activeNow != null) SideCarColors.Alert else SideCarColors.Crimson, Modifier.weight(1f).aspectRatio(1f),
                 onClick = { onOpen(Screen.Activity) }, icon = Icons.Filled.Notifications,
-                value = activity.size.toString(),
-                detail = activeNow?.let { "${it.kind} at ${it.camera}" } ?: activity.firstOrNull()?.let { "Last: ${it.kind}" } ?: "Nothing yet",
+                // Cleared items stay in History but don't count here.
+                value = activity.count { !it.cleared }.toString(),
+                detail = activeNow?.let { "${it.kind} at ${it.camera}" } ?: activity.firstOrNull { !it.cleared }?.let { "Last: ${it.kind}" } ?: "Nothing new",
                 label = "Activity")
             Tile(Color(0xFF2F3640), Modifier.weight(1f).aspectRatio(1f), onClick = { onOpen(Screen.X) },
-                icon = null, value = "\uD835\uDD4F", detail = "Signal", label = "X")
+                icon = null, value = summary?.x?.signal?.toString() ?: "\uD835\uDD4F",
+                detail = summary?.x?.newest ?: "Signal", label = "X")
         }
         val todo = state.tasks?.views
         val needs = todo?.needsMe.orEmpty()
@@ -170,7 +182,8 @@ fun HomeScreen(state: UiState, vm: app.sidecarmonitor.AppViewModel, onOpen: (Scr
                          else todo?.today?.firstOrNull()?.title ?: "Nothing for today",
                 label = "To-do")
             Tile(Color(0xFF0A66C2), Modifier.weight(1f).height(130.dp), onClick = { onOpen(Screen.LinkedIn) },
-                icon = Icons.Filled.Groups, value = "", detail = "Signal", label = "LinkedIn")
+                icon = Icons.Filled.Groups, value = summary?.linkedin?.signal?.toString() ?: "",
+                detail = summary?.linkedin?.newest ?: "Signal", label = "LinkedIn")
             Tile(SideCarColors.Steel, Modifier.weight(0.8f).height(130.dp), onClick = { onOpen(Screen.Settings) },
                 icon = Icons.Filled.Settings, value = "", detail = "", label = "Settings")
         }
@@ -247,55 +260,6 @@ fun CamerasScreen(state: UiState, snapshot: suspend (Int) -> ByteArray?, onBack:
     }
 }
 
-@Composable
-fun WeatherScreen(state: UiState, vm: app.sidecarmonitor.AppViewModel, onBack: () -> Unit) {
-    val w = state.status?.weather
-    var forecast by remember { mutableStateOf<app.sidecarmonitor.data.ForecastInfo?>(null) }
-    LaunchedEffect(Unit) { forecast = runCatching { vm.kiosk?.forecast() }.getOrNull() }
-    Column(Modifier.fillMaxSize()) {
-        PageHeader("Weather", onBack)
-        Column(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Tile(SideCarColors.Amber, Modifier.fillMaxWidth().height(170.dp), onClick = null) {
-                Column {
-                    Text(w.str("temperature") ?: "--", fontSize = 64.sp, fontWeight = FontWeight.Light)
-                    Text(w.str("condition") ?: "", fontSize = 20.sp)
-                    Text("Feels like ${w.str("feelsLike") ?: "--"}", fontSize = 15.sp)
-                }
-            }
-            WeatherRow("Wind", w.str("wind"), "Gust ${w.str("windGust") ?: "--"}")
-            WeatherRow("Humidity", w.str("humidity"), "Dew point ${w.str("dewPoint") ?: "--"}")
-            WeatherRow("Rain today", w.str("rainToday"), w.str("precipitationNow")?.let { "Now: $it" })
-            WeatherRow("Pressure", w.str("pressure"), null)
-            WeatherRow("Lightning today", w.str("lightningStrikesToday"), w.str("lastLightning"))
-            Text("Tempest reading at ${w.str("observedAt") ?: "--"}", color = SideCarColors.Muted, fontSize = 13.sp)
-            forecast?.let { f ->
-                if (f.error != null) Text(f.error, color = SideCarColors.Muted, fontSize = 13.sp)
-                if (f.highlights.isNotEmpty()) Column(Modifier.fillMaxWidth().background(SideCarColors.Panel).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Coming up", color = SideCarColors.Muted, fontSize = 14.sp)
-                    f.highlights.forEach { Text(it, fontSize = 15.sp) }
-                }
-                if (f.hours.isNotEmpty()) Column(Modifier.fillMaxWidth().background(SideCarColors.Panel).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Next hours", color = SideCarColors.Muted, fontSize = 14.sp)
-                    f.hours.forEach { Text(it, fontSize = 13.sp) }
-                }
-                if (f.days.isNotEmpty()) Column(Modifier.fillMaxWidth().background(SideCarColors.Panel).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Next days", color = SideCarColors.Muted, fontSize = 14.sp)
-                    f.days.forEach { Text(it, fontSize = 15.sp) }
-                }
-            }
-            Spacer(Modifier.height(96.dp))
-        }
-    }
-}
-
-@Composable
-private fun WeatherRow(title: String, value: String?, detail: String?) {
-    Column(Modifier.fillMaxWidth().background(SideCarColors.Panel).padding(12.dp)) {
-        Text(title, color = SideCarColors.Muted, fontSize = 14.sp)
-        Text(value ?: "--", fontSize = 22.sp)
-        if (!detail.isNullOrBlank()) Text(detail, color = SideCarColors.Muted, fontSize = 13.sp)
-    }
-}
 
 @Composable
 fun ActivityScreen(state: UiState, snapshot: suspend (Int) -> ByteArray?, eventSnapshot: suspend (String, Int) -> ByteArray?,

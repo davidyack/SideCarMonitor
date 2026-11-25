@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -85,9 +86,16 @@ fun HouseScreen(vm: AppViewModel, onBack: () -> Unit) {
             }
             if (!h?.scripts.isNullOrEmpty()) {
                 item { Section("Scripts") }
-                items(h!!.scripts, key = { "s-" + it.tool }) { s ->
-                    Box(SideCarColors.Teal, busy == s.tool) { act(s.tool) { vm.homeScript(s) } }.let { mod ->
-                        Text(s.name, mod, fontSize = 18.sp)
+                // Two to a row, like the room tiles.
+                items(h!!.scripts.chunked(2), key = { row -> "s-" + row.joinToString { it.tool } }) { row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        row.forEach { s ->
+                            Text(s.name, Modifier.weight(1f).heightIn(min = 72.dp)
+                                .background(if (busy == s.tool) SideCarColors.Teal.copy(alpha = 0.5f) else SideCarColors.Teal)
+                                .clickable { act(s.tool) { vm.homeScript(s) } }.padding(14.dp),
+                                fontSize = 17.sp, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        }
+                        if (row.size == 1) androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
                     }
                 }
             }
