@@ -184,7 +184,7 @@ public sealed partial class TasksPage : UserControl
             var day = columns[i];
             var tasks = all.Where(t => day is null
                     ? t.Status == TodoStatus.Open && t.Date is null
-                    : t.Date == day && (t.Status == TodoStatus.Open || t.Completed is not null))
+                    : t.Date == day && t.Status == TodoStatus.Open) // the plan shows what's left, not what's done
                 .OrderBy(t => t.Status).ThenBy(t => t.Priority).ToList();
             var column = WeekColumn(day, today, tasks);
             Grid.SetColumn(column, i);

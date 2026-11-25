@@ -106,7 +106,7 @@ class MainActivity : ComponentActivity() {
                             Screen.Tasks ->
                                 if (state.openTask != null) TaskDetailScreen(state, vm::taskAction, dictate = { vm.dictate(state.openTask?.row?.id) }, stopDictate = vm::stopDictation) { vm.closeTask() }
                                 else TasksScreen(state, onOpen = vm::openTask, onAdd = vm::addTask,
-                                    onWeek = { vm.loadWeek(0); screen = Screen.Week }) { screen = Screen.Home }
+                                    onWeek = { vm.loadWeek(0); screen = Screen.Week }, onDismissBrief = vm::dismissTaskBrief) { screen = Screen.Home }
                             Screen.Week ->
                                 if (state.openTask != null) TaskDetailScreen(state, vm::taskAction, dictate = { vm.dictate(state.openTask?.row?.id) }, stopDictate = vm::stopDictation) { vm.closeTask(); vm.loadWeek() }
                                 else WeekScreen(state.week, state.taskMessage, onMove = vm::moveTaskToDay, onToggleDone = vm::toggleDone,

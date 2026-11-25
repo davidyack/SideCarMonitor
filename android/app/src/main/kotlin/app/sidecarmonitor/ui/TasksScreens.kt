@@ -57,7 +57,8 @@ private fun priorityColor(p: String) = when (p) {
 
 /** Today / Upcoming / Needs me / Done, with an add box. Mirrors the kiosk's To-do page. */
 @Composable
-fun TasksScreen(state: UiState, onOpen: (String) -> Unit, onAdd: (String, Boolean) -> Unit, onWeek: () -> Unit, onBack: () -> Unit) {
+fun TasksScreen(state: UiState, onOpen: (String) -> Unit, onAdd: (String, Boolean) -> Unit, onWeek: () -> Unit,
+                onDismissBrief: () -> Unit = {}, onBack: () -> Unit) {
     var tab by rememberSaveable { mutableStateOf("today") }
     var newTitle by remember { mutableStateOf("") }
     val views = state.tasks?.views
@@ -91,7 +92,11 @@ fun TasksScreen(state: UiState, onOpen: (String) -> Unit, onAdd: (String, Boolea
             }
             state.tasks?.brief?.let { brief ->
                 Column(Modifier.fillMaxWidth().background(SideCarColors.Panel).padding(10.dp)) {
-                    Text("Today's brief", color = SideCarColors.Amber, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Today's brief", Modifier.weight(1f), color = SideCarColors.Amber, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Dismiss", Modifier.background(SideCarColors.Steel).clickable(onClick = onDismissBrief)
+                            .padding(horizontal = 16.dp, vertical = 10.dp), fontSize = 14.sp)
+                    }
                     Text(brief, fontSize = 14.sp)
                 }
             }

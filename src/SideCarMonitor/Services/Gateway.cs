@@ -492,6 +492,13 @@ public sealed class Gateway : IAsyncDisposable
 
     private void MapTasks(WebApplication app)
     {
+        // The to-do list's daily brief: Dismiss after reading (same as the kiosk's To-do page).
+        app.MapPost("/api/tasks/brief/dismiss", () =>
+        {
+            if (_deps.Tasks is not { } t) return Results.NotFound();
+            t.Store.Update(SideCarTasks.Actor.User, d => { if (d.Briefs.LastOrDefault() is { } b) b.Dismissed = true; return true; });
+            return Results.Ok(new { ok = true });
+        });
         app.MapGet("/api/tasks", () =>
         {
             var t = _deps.Tasks;
@@ -522,7 +529,7 @@ public sealed class Gateway : IAsyncDisposable
             var monday = anchor.AddDays(-(((int)anchor.DayOfWeek + 6) % 7));
             var all = t.All();
             bool Show(SideCarTasks.TaskItem x, DateOnly day) =>
-                x.Date == day && (x.Status == SideCarTasks.TodoStatus.Open || x.Completed is not null);
+                x.Date == day && x.Status == SideCarTasks.TodoStatus.Open; // the plan shows what's left, not what's done
             return Results.Json(new
             {
                 today = today.ToString("yyyy-MM-dd"),

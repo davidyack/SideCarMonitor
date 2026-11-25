@@ -387,6 +387,7 @@ class SideCarClient(private val pairing: Pairing) {
     // ---- Briefs ----
     suspend fun brief(): BriefInfo = withContext(Dispatchers.IO) { call(Request.Builder().url("$base/api/brief").build()).use { json.decodeFromString(it.body.string()) } }
     suspend fun briefDismiss() = postJson("/api/brief/dismiss", buildJsonObject { })
+    suspend fun taskBriefDismiss() = postJson("/api/tasks/brief/dismiss", buildJsonObject { })
     suspend fun briefMake() = postJson("/api/brief/make", buildJsonObject { })
     suspend fun briefAudio(): ByteArray = withContext(Dispatchers.IO) { call(Request.Builder().url("$base/api/brief/audio").build()).use { it.body.bytes() } }
 

@@ -279,6 +279,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Dismiss the to-do list's daily brief (hidden right away; the outbox makes sure the kiosk hears it). */
+    fun dismissTaskBrief() {
+        _state.update { s -> s.copy(tasks = s.tasks?.copy(brief = null)) }
+        viewModelScope.launch { client?.taskBriefDismiss() }
+    }
+
     fun addTask(title: String, pinToday: Boolean) {
         if (title.isBlank()) return
         viewModelScope.launch {
