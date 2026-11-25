@@ -76,6 +76,10 @@ public sealed class TaskRulesTests : IDisposable
         var order = TaskService.InDayOrder(_svc.All().Where(t => t.Date == Today)).Select(t => t.Title).ToList();
         Assert.Equal(["Already today", "Older one", "Renew passport"], order); // oldest first, after today's own
         Assert.Equal(3, _svc.DaysRolled(_svc.Get(b.Id)!));
+
+        // Moved ahead to a later day (by you or by older rules): not "rolling" any more.
+        _svc.Store.Update(Actor.System, d => { d.Tasks.Single(x => x.Id == b.Id).Date = Today.AddDays(2); return true; });
+        Assert.Equal(0, _svc.DaysRolled(_svc.Get(b.Id)!));
     }
 
     [Fact]

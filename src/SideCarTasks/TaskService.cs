@@ -19,7 +19,9 @@ public sealed class TaskService
     public const int RollDaysBeforeAsk = 7;
 
     /// <summary>How many days an open to-do has been rolling forward (0 if it isn't).</summary>
-    public int DaysRolled(TaskItem t) => t.OriginalTarget is { } o && t.Status == TodoStatus.Open ? Math.Max(0, Today.DayNumber - o.DayNumber) : 0;
+    /// Only a to-do sitting on today (or still overdue) is rolling; one moved ahead to a later day isn't.
+    public int DaysRolled(TaskItem t) =>
+        t.OriginalTarget is { } o && t.Status == TodoStatus.Open && t.Date is { } d && d <= Today ? Math.Max(0, Today.DayNumber - o.DayNumber) : 0;
 
     private readonly TaskStore _store;
     private readonly Func<DateTimeOffset> _now;
