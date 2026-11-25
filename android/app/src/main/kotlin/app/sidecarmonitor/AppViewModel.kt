@@ -28,12 +28,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 
 enum class AssistantState { Idle, Connecting, Listening, Thinking, Speaking }
 
+@kotlinx.serialization.Serializable
 data class ChatLine(val fromUser: Boolean, val text: String, val tools: List<String> = emptyList(), val error: Boolean = false,
                     /** Set while the message waits in the outbox (the kiosk was out of reach). */
                     val outboxId: String? = null)
@@ -90,6 +93,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         Outbox.init(app)
+        // The chat keeps its history (across closing it and app restarts) until you start a New chat.
+        val historyFile = java.io.File(app.filesDir, "chat-history.json")
+        runCatching {
+            val saved = kotlinx.serialization.json.Json.decodeFromString(kotlinx.serialization.builtins.ListSerializer(ChatLine.serializer()), historyFile.readText())
+            _state.update { it.copy(lines = saved) }
+        }
+        viewModelScope.launch {
+            _state.map { it.lines }.distinctUntilChanged().collect { lines ->
+                runCatching { historyFile.writeText(kotlinx.serialization.json.Json.encodeToString(kotlinx.serialization.builtins.ListSerializer(ChatLine.serializer()), lines)) }
+            }
+        }
         OfflineCache.init(app)
         store.load()?.let { usePairing(it) }
         viewModelScope.launch { Outbox.items.collect { items -> _state.update { it.copy(outbox = items) } } }
@@ -122,7 +136,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val lines = s.lines.map { if (it.outboxId == a.id) it.copy(text = if (it.text.startsWith("\uD83C\uDFA4")) a.question else it.text, outboxId = null) else it }.toMutableList()
         if (lines.none { it.fromUser && it.text == a.question }) lines += ChatLine(true, a.question)
         lines += ChatLine(false, a.reply)
-        s.copy(lines = lines.takeLast(40))
+        s.copy(lines = lines.takeLast(200))
     }
 
     // ---- Pairing ----------------------------------------------------------------------------
@@ -365,7 +379,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun closeAssistant() {
         stopTurn()
-        if (_state.value.lines.isNotEmpty()) chat?.endConversation()
+        // The conversation stays open until New chat, so the history you see is what SideCar remembers.
         _state.update { it.copy(assistantOpen = false, assistant = AssistantState.Idle, voiceMode = false) }
     }
 
@@ -638,7 +652,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         addLine(ChatLine(false, message, error = true))
     }
 
-    private fun addLine(line: ChatLine) = _state.update { it.copy(lines = (it.lines + line).takeLast(40)) }
+    private fun addLine(line: ChatLine) = _state.update { it.copy(lines = (it.lines + line).takeLast(200)) }
 
     private fun setAssistant(a: AssistantState, note: String) =
         _state.update { it.copy(assistant = a, assistantNote = note) }
