@@ -40,7 +40,9 @@ import java.io.DataOutputStream
  *   /sidecar/reply/<id> as [int json length][json {heard, reply, error}][WAV bytes].
  */
 class WatchBridgeService : WearableListenerService() {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // Process-wide, not tied to this service: Android destroys a listener service as soon as onRequest returns its
+    // (still pending) reply, and cancelling here killed the reply before it was sent ("null response" on the watch).
+    private val scope get() = bridgeScope
     private val json = Json { ignoreUnknownKeys = true }
 
     /** For writes: never fails just because the kiosk is out of reach (the outbox keeps it). */
@@ -196,9 +198,14 @@ class WatchBridgeService : WearableListenerService() {
         return java.io.ByteArrayOutputStream().also { scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 75, it) }.toByteArray()
     }
 
-    override fun onDestroy() {
-        scope.cancel()
-        super.onDestroy()
+    override fun onCreate() {
+        super.onCreate()
+        app.sidecarmonitor.data.OfflineCache.init(this) // the watch gets the last saved data if the kiosk is out of reach
+        app.sidecarmonitor.data.Outbox.init(this)
+    }
+
+    companion object {
+        private val bridgeScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     }
 }
 
