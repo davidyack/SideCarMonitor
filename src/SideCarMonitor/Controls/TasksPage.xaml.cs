@@ -185,7 +185,8 @@ public sealed partial class TasksPage : UserControl
             var tasks = all.Where(t => day is null
                     ? t.Status == TodoStatus.Open && t.Date is null
                     : t.Date == day && t.Status == TodoStatus.Open) // the plan shows what's left, not what's done
-                .OrderBy(t => t.Status).ThenBy(t => t.Priority).ToList();
+                .ToList();
+            tasks = TaskService.InDayOrder(tasks).ToList(); // your dragged order, then priority
             var column = WeekColumn(day, today, tasks);
             Grid.SetColumn(column, i);
             WeekColumns.Children.Add(column);

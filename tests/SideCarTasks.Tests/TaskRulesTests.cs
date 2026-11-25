@@ -25,6 +25,35 @@ public sealed class TaskRulesTests : IDisposable
     private void NextDays(int n) => _clock = _clock.AddDays(n);
 
     [Fact]
+    public void Dropping_into_a_day_moves_it_there_as_a_flexible_target_in_the_order_given()
+    {
+        var a = _svc.Add(Actor.User, "A", priority: Priority.High, date: Today.AddDays(1));
+        var b = _svc.Add(Actor.User, "B", priority: Priority.Low, date: Today.AddDays(1));
+        var c = _svc.Add(Actor.User, "C", priority: Priority.Medium, date: Today.AddDays(3));
+
+        _svc.OrderDay(Actor.User, Today.AddDays(1), [b.Id, c.Id, a.Id]); // C dragged in between, B on top
+
+        var day = TaskService.InDayOrder(_svc.All().Where(t => t.Date == Today.AddDays(1))).Select(t => t.Title).ToList();
+        Assert.Equal(["B", "C", "A"], day);
+        var moved = _svc.Get(c.Id)!;
+        Assert.Equal(DateKind.Flexible, moved.DateType);
+        Assert.Contains(moved.History, e => e.Text.Contains("Moved by you"));
+    }
+
+    [Fact]
+    public void Hard_deadlines_reorder_within_their_day_but_do_not_move_and_the_assistant_cannot_reorder()
+    {
+        var hard = _svc.Add(Actor.User, "Taxes", date: Today.AddDays(2), dateType: DateKind.Hard);
+        var other = _svc.Add(Actor.User, "Other", date: Today.AddDays(2));
+
+        _svc.OrderDay(Actor.User, Today.AddDays(2), [other.Id, hard.Id]); // same day: fine
+        Assert.Equal(1, _svc.Get(hard.Id)!.DayRank);
+        Assert.Throws<TaskRuleException>(() => _svc.OrderDay(Actor.User, Today.AddDays(4), [hard.Id]));
+        Assert.Throws<TaskRuleException>(() => _svc.OrderDay(Actor.Assistant, Today.AddDays(2), [hard.Id, other.Id]));
+        Assert.Equal(Today.AddDays(2), _svc.Get(hard.Id)!.Date);
+    }
+
+    [Fact]
     public void Flexible_medium_target_from_yesterday_moves_to_three_days_from_today_exactly_once()
     {
         var t = _svc.Add(Actor.User, "Renew passport", priority: Priority.Medium, date: Today.AddDays(-1));

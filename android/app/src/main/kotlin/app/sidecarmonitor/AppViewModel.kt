@@ -255,6 +255,28 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun shiftWeek(delta: Int) = loadWeek(_state.value.weekOffset + delta)
 
     /** Drag-and-drop: a day sets a flexible target date (your explicit reschedule); null clears the day. */
+    /** A drop in the weekly plan: shown at once, then saved on the kiosk (through the outbox). */
+    fun orderDay(date: String?, ids: List<String>) {
+        _state.update { s ->
+            val w = s.week ?: return@update s
+            val all = (w.days.flatMap { it.tasks } + w.noDay + w.earlier).associateBy { it.id }
+            val moved = ids.mapNotNull { all[it] }.map { it.copy(date = date) }
+            fun keep(list: List<TaskRow>) = list.filter { it.id !in ids }
+            s.copy(week = w.copy(
+                days = w.days.map { d -> if (d.date == date) d.copy(tasks = moved) else d.copy(tasks = keep(d.tasks)) },
+                noDay = if (date == null) moved else keep(w.noDay),
+                earlier = keep(w.earlier),
+            ))
+        }
+        viewModelScope.launch {
+            val c = client ?: return@launch
+            val error = c.taskOrder(date, ids)
+            _state.update { it.copy(taskMessage = error) }
+            loadWeek()
+            runCatching { c.tasks() }.getOrNull()?.let { t -> _state.update { it.copy(tasks = t) } }
+        }
+    }
+
     fun moveTaskToDay(taskId: String, date: String?) {
         viewModelScope.launch {
             val c = client ?: return@launch

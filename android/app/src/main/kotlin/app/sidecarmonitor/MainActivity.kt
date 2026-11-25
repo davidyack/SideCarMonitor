@@ -109,7 +109,7 @@ class MainActivity : ComponentActivity() {
                                     onWeek = { vm.loadWeek(0); screen = Screen.Week }, onDismissBrief = vm::dismissTaskBrief) { screen = Screen.Home }
                             Screen.Week ->
                                 if (state.openTask != null) TaskDetailScreen(state, vm::taskAction, dictate = { vm.dictate(state.openTask?.row?.id) }, stopDictate = vm::stopDictation) { vm.closeTask(); vm.loadWeek() }
-                                else WeekScreen(state.week, state.taskMessage, onMove = vm::moveTaskToDay, onToggleDone = vm::toggleDone,
+                                else WeekScreen(state.week, state.taskMessage, onOrder = vm::orderDay, onToggleDone = vm::toggleDone,
                                     onOpen = vm::openTask, onWeek = vm::shiftWeek) { screen = Screen.Tasks }
                             Screen.House -> HouseScreen(vm) { screen = Screen.Home }
                     Screen.X -> app.sidecarmonitor.ui.XScreen(vm) { screen = Screen.Home }

@@ -36,6 +36,9 @@ public sealed class TaskItem
     public DateOnly? Date { get; set; }
     public DateKind DateType { get; set; } = DateKind.Flexible;
 
+    /// <summary>Your order within its day (set by dragging in the weekly plan); lower is first, null sorts by priority after ranked ones.</summary>
+    public double? DayRank { get; set; }
+
     /// <summary>"Put it on Today" pin. Not a date change; stays until cleared or the task is done.</summary>
     public bool PinnedToday { get; set; }
 

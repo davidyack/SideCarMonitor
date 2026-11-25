@@ -387,6 +387,11 @@ class SideCarClient(private val pairing: Pairing) {
     // ---- Briefs ----
     suspend fun brief(): BriefInfo = withContext(Dispatchers.IO) { call(Request.Builder().url("$base/api/brief").build()).use { json.decodeFromString(it.body.string()) } }
     suspend fun briefDismiss() = postJson("/api/brief/dismiss", buildJsonObject { })
+    /** Weekly plan drop: [ids] is the day's new order (top first); tasks from other days move to [date] (null = no day). */
+    suspend fun taskOrder(date: String?, ids: List<String>) = postJson("/api/tasks/order", buildJsonObject {
+        put("date", date ?: "")
+        put("ids", kotlinx.serialization.json.JsonArray(ids.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+    })
     suspend fun taskBriefDismiss() = postJson("/api/tasks/brief/dismiss", buildJsonObject { })
     suspend fun briefMake() = postJson("/api/brief/make", buildJsonObject { })
     suspend fun briefAudio(): ByteArray = withContext(Dispatchers.IO) { call(Request.Builder().url("$base/api/brief/audio").build()).use { it.body.bytes() } }

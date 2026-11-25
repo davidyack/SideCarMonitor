@@ -34,6 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -66,14 +67,17 @@ import kotlinx.coroutines.delay
 private data class DropZone(val key: String, val accepts: Boolean)
 
 /**
- * Weekly plan: press and hold a task, drag it to another day, let go. Dropping sets a flexible target
- * date on that day (a manual reschedule). Hard deadlines are locked; past days don't take drops.
+ * Weekly plan: press and hold a task and drag. While you drag, every day collapses to its header so you can
+ * reach any day quickly; hold over a day for a moment and it opens so you can drop the task exactly where it
+ * should go in that day's order (a blue line shows the spot). Dropping on a collapsed day puts it last.
+ * Moving to another day sets a flexible target there (a manual reschedule). Hard deadlines can be reordered
+ * within their day but don't move; past days don't take drops.
  */
 @Composable
 fun WeekScreen(
     week: WeekPlan?,
     message: String?,
-    onMove: (taskId: String, date: String?) -> Unit,
+    onOrder: (date: String?, ids: List<String>) -> Unit,
     onToggleDone: (TaskRow) -> Unit,
     onOpen: (String) -> Unit,
     onWeek: (Int) -> Unit,
@@ -82,12 +86,25 @@ fun WeekScreen(
     val haptics = LocalHapticFeedback.current
     val scroll = rememberScrollState()
     val zones = remember { mutableStateMapOf<DropZone, Rect>() }
+    val rows = remember { mutableStateMapOf<String, Rect>() }      // each task row's bounds in root
     var dragging by remember { mutableStateOf<TaskRow?>(null) }
-    var dragOrigin by remember { mutableStateOf(Offset.Zero) }   // row's top-left in root when drag started
+    var dragStartOrigin by remember { mutableStateOf(Offset.Zero) }
     var dragDelta by remember { mutableStateOf(Offset.Zero) }
     var touchInRow by remember { mutableStateOf(Offset.Zero) }
-    val pointer = dragOrigin + touchInRow + dragDelta
+    var expanded by remember { mutableStateOf<String?>(null) }    // the day opened while dragging
+    // The finger in root coordinates: the dragged row's current position + where you touched it + how far you moved.
+    // (Using the row's live position keeps this right while days collapse and expand around it.)
+    val pointer = (dragging?.let { rows[it.id]?.topLeft } ?: dragStartOrigin) + touchInRow + dragDelta
     val hovered = dragging?.let { zones.entries.firstOrNull { it.value.contains(pointer) }?.key }
+
+    // Hold over a day for a moment: open it so you can pick the exact spot.
+    LaunchedEffect(hovered, dragging) {
+        if (dragging != null && hovered != null && hovered.accepts && hovered.key != expanded) {
+            delay(350)
+            expanded = hovered.key
+            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        }
+    }
 
     // Scroll while dragging near the top or bottom edge.
     var viewport by remember { mutableStateOf(Rect.Zero) }
@@ -99,9 +116,60 @@ fun WeekScreen(
                 pointer.y > viewport.bottom - edge -> 24f
                 else -> 0f
             }
-            if (step != 0f) { scroll.scrollBy(step); dragOrigin = dragOrigin.copy(y = dragOrigin.y - step) }
+            if (step != 0f) scroll.scrollBy(step)
             delay(16)
         }
+    }
+
+    fun tasksOf(key: String): List<TaskRow> = when (key) {
+        "" -> week?.noDay.orEmpty()
+        "earlier" -> week?.earlier.orEmpty()
+        else -> week?.days?.firstOrNull { it.date == key }?.tasks.orEmpty()
+    }
+    /** Where the dragged task would land in an open day: before the first row whose middle is below the finger. */
+    fun insertIndex(key: String): Int {
+        val others = tasksOf(key).filter { it.id != dragging?.id }
+        if (expanded != key) return others.size
+        return others.count { (rows[it.id]?.center?.y ?: Float.MAX_VALUE) < pointer.y }
+    }
+
+    val startDrag: (TaskRow, Offset, Offset) -> Unit = { row, origin, touch ->
+        dragging = row; dragStartOrigin = origin; touchInRow = touch; dragDelta = Offset.Zero; expanded = null
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+    }
+    val endDrag: () -> Unit = {
+        val r = dragging
+        val z = hovered
+        if (r != null && z != null && z.accepts) {
+            val others = tasksOf(z.key).filter { it.id != r.id }.map { it.id }.toMutableList()
+            others.add(insertIndex(z.key).coerceIn(0, others.size), r.id)
+            val before = tasksOf(z.key).map { it.id }
+            if (others != before) onOrder(z.key.ifEmpty { null }, others)
+        }
+        dragging = null; expanded = null
+    }
+
+    @Composable
+    fun DayTasks(zone: DropZone, tasks: List<TaskRow>, emptyText: String) {
+        val open = dragging == null || expanded == zone.key
+        if (!open) {
+            // Collapsed while dragging: a count, plus the task you're holding (it has to stay on screen).
+            Text(if (tasks.isEmpty()) "Empty" else "${tasks.size} task${if (tasks.size == 1) "" else "s"}",
+                fontSize = 13.sp, color = SideCarColors.Muted, modifier = Modifier.padding(top = 2.dp))
+            tasks.filter { it.id == dragging?.id }.forEach { t ->
+                key(t.id) { TaskLine(t, dragging, onToggleDone, onOpen, startDrag, { dragDelta += it }, endDrag) { id, b -> rows[id] = b } }
+            }
+            return
+        }
+        if (tasks.isEmpty()) Text(emptyText, color = SideCarColors.Muted, fontSize = 14.sp, modifier = Modifier.padding(vertical = 8.dp))
+        val dropAt = if (dragging != null && hovered == zone && zone.accepts) insertIndex(zone.key) else -1
+        var shown = 0
+        tasks.forEach { t ->
+            if (t.id != dragging?.id && shown == dropAt) DropLine()
+            key(t.id) { TaskLine(t, dragging, onToggleDone, onOpen, startDrag, { dragDelta += it }, endDrag) { id, b -> rows[id] = b } }
+            if (t.id != dragging?.id) shown++
+        }
+        if (dropAt >= 0 && dropAt == shown) DropLine()
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -114,48 +182,38 @@ fun WeekScreen(
             IconButton(onClick = { onWeek(-1) }, modifier = Modifier.size(56.dp)) { Icon(Icons.Filled.ChevronLeft, "Previous week", Modifier.size(32.dp)) }
             IconButton(onClick = { onWeek(1) }, modifier = Modifier.size(56.dp)) { Icon(Icons.Filled.ChevronRight, "Next week", Modifier.size(32.dp)) }
         }
-        Text("Press and hold a task, then drag it to a day.", Modifier.padding(horizontal = 16.dp), color = SideCarColors.Muted, fontSize = 13.sp)
+        Text(if (dragging == null) "Press and hold a task, then drag it to a day. Hold over a day to place it in order."
+             else "Hold over a day to open it, then drop where it belongs.",
+            Modifier.padding(horizontal = 16.dp), color = SideCarColors.Muted, fontSize = 13.sp)
         message?.let { Text(it, Modifier.padding(horizontal = 16.dp), color = SideCarColors.Alert, fontSize = 14.sp) }
 
         Box(Modifier.weight(1f).onGloballyPositioned { viewport = it.boundsInRoot() }) {
-            Column(Modifier.verticalScroll(scroll, enabled = dragging == null).padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.verticalScroll(scroll, enabled = dragging == null).padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(if (dragging != null) 6.dp else 10.dp)) {
                 if (week == null) Text("Loading\u2026", color = SideCarColors.Muted)
                 // Today first, then overdue, the rest of the week, no day, and the days already past.
                 val days = week?.days.orEmpty()
-                val todayAndAhead = days.filter { !it.isPast }
-                val pastDays = days.filter { it.isPast }
+                val ahead = days.filter { !it.isPast }
+                val past = days.filter { it.isPast }
                 @Composable fun DaySection(day: app.sidecarmonitor.data.WeekDay) {
                     val zone = DropZone(day.date, !day.isPast)
-                    Section(day.label, day.shortLabel, zone, hovered, zones,
-                        highlight = if (day.isToday) SideCarColors.Emerald else null) {
-                        if (day.tasks.isEmpty()) Text(if (day.isPast) "" else "Drop a task here", color = SideCarColors.Muted, fontSize = 14.sp,
-                            modifier = Modifier.padding(vertical = 8.dp))
-                        day.tasks.forEach { TaskLine(it, dragging, onToggleDone, onOpen,
-                            onDragStart = { row, o, t -> dragging = row; dragOrigin = o; touchInRow = t; dragDelta = Offset.Zero; haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
-                            onDrag = { dragDelta += it },
-                            onDragEnd = { hovered?.takeIf { z -> z.accepts && z.key != dragging?.date }?.let { z -> dragging?.let { r -> onMove(r.id, z.key.ifEmpty { null }) } }; dragging = null }) }
+                    Section(day.label, day.shortLabel, zone, hovered, zones, highlight = if (day.isToday) SideCarColors.Emerald else null) {
+                        DayTasks(zone, day.tasks, if (day.isPast) "" else "Drop a task here")
                     }
                 }
-                todayAndAhead.firstOrNull { it.isToday }?.let { DaySection(it) }
+                ahead.firstOrNull { it.isToday }?.let { DaySection(it) }
                 week?.earlier?.takeIf { it.isNotEmpty() }?.let { earlier ->
-                    Section("Earlier (overdue)", null, DropZone("earlier", false), hovered, zones, highlight = SideCarColors.Crimson) {
-                        earlier.forEach { TaskLine(it, dragging, onToggleDone, onOpen, onDragStart = { row, o, t -> dragging = row; dragOrigin = o; touchInRow = t; dragDelta = Offset.Zero; haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
-                            onDrag = { dragDelta += it }, onDragEnd = { hovered?.takeIf { z -> z.accepts }?.let { z -> dragging?.let { r -> onMove(r.id, z.key.ifEmpty { null }) } }; dragging = null }) }
-                    }
+                    val zone = DropZone("earlier", false)
+                    Section("Earlier (overdue)", null, zone, hovered, zones, highlight = SideCarColors.Crimson) { DayTasks(zone, earlier, "") }
                 }
-                todayAndAhead.filter { !it.isToday }.forEach { DaySection(it) }
+                ahead.filter { !it.isToday }.forEach { DaySection(it) }
                 week?.let { w ->
-                    Section("No day yet", null, DropZone("", true), hovered, zones, highlight = null) {
-                        if (w.noDay.isEmpty()) Text("Drop here to clear a task's day", color = SideCarColors.Muted, fontSize = 14.sp, modifier = Modifier.padding(vertical = 8.dp))
-                        w.noDay.forEach { TaskLine(it, dragging, onToggleDone, onOpen,
-                            onDragStart = { row, o, t -> dragging = row; dragOrigin = o; touchInRow = t; dragDelta = Offset.Zero; haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
-                            onDrag = { dragDelta += it },
-                            onDragEnd = { hovered?.takeIf { z -> z.accepts && z.key.isNotEmpty() }?.let { z -> dragging?.let { r -> onMove(r.id, z.key) } }; dragging = null }) }
-                    }
+                    val zone = DropZone("", true)
+                    Section("No day yet", null, zone, hovered, zones, highlight = null) { DayTasks(zone, w.noDay, "Drop here to clear a task's day") }
                 }
-                if (pastDays.isNotEmpty()) {
+                if (past.isNotEmpty()) {
                     Text("Earlier this week", Modifier.padding(top = 8.dp), color = SideCarColors.Muted, fontSize = 14.sp)
-                    pastDays.forEach { DaySection(it) }
+                    past.forEach { DaySection(it) }
                 }
                 Spacer(Modifier.height(96.dp))
             }
@@ -176,6 +234,11 @@ fun WeekScreen(
         }
     }
 }
+
+/** Where the dragged task will land. */
+@Composable
+private fun DropLine() =
+    Box(Modifier.fillMaxWidth().padding(vertical = 2.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(SideCarColors.Cobalt))
 
 @Composable
 private fun Section(
@@ -219,6 +282,7 @@ private fun TaskLine(
     onDragStart: (TaskRow, Offset, Offset) -> Unit,
     onDrag: (Offset) -> Unit,
     onDragEnd: () -> Unit,
+    onBounds: (String, Rect) -> Unit,
 ) {
     var rowOrigin by remember { mutableStateOf(Offset.Zero) }
     // The drag handler below is set up once per task; these always hand it the latest callbacks
@@ -227,10 +291,10 @@ private fun TaskLine(
     val dragNow by rememberUpdatedState(onDrag)
     val endNow by rememberUpdatedState(onDragEnd)
     val done = t.status == "Done"
-    val locked = t.hard || done
+    val locked = done // hard deadlines can still be reordered within their day (the kiosk refuses a day change)
     Row(
         Modifier.fillMaxWidth().heightIn(min = 56.dp)
-            .onGloballyPositioned { rowOrigin = it.positionInRoot() }
+            .onGloballyPositioned { rowOrigin = it.positionInRoot(); onBounds(t.id, it.boundsInRoot()) }
             .graphicsLayer { alpha = if (dragging?.id == t.id) 0.3f else 1f }
             .then(if (locked) Modifier else Modifier.pointerInput(t.id) {
                 detectDragGesturesAfterLongPress(
@@ -252,7 +316,7 @@ private fun TaskLine(
         Text(t.title, Modifier.weight(1f), fontSize = 17.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
             color = if (done) SideCarColors.Muted else Color.White,
             textDecoration = if (done) TextDecoration.LineThrough else null)
-        if (t.hard) Icon(Icons.Filled.Lock, "Hard deadline", tint = SideCarColors.Alert, modifier = Modifier.size(22.dp))
+        if (t.hard) Icon(Icons.Filled.Lock, "Hard deadline (reorder only)", tint = SideCarColors.Alert, modifier = Modifier.size(22.dp))
         else if (!done) Icon(Icons.Filled.DragIndicator, "Hold to drag", tint = SideCarColors.Muted, modifier = Modifier.size(22.dp))
     }
 }

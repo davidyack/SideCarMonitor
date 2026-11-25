@@ -140,6 +140,46 @@ public sealed class TaskService
         });
     }
 
+    /// <summary>Tasks of one day in the order you set (dragged order first, then by priority).</summary>
+    public static IEnumerable<TaskItem> InDayOrder(IEnumerable<TaskItem> tasks) =>
+        tasks.OrderBy(t => t.DayRank ?? double.MaxValue).ThenBy(t => t.Priority).ThenBy(t => t.Created);
+
+    /// <summary>
+    /// A drop in the weekly plan: <paramref name="ids"/> is the day's new order, top first. Tasks dropped in from
+    /// another day move to <paramref name="date"/> (null = no day) as a flexible target, like any manual reschedule.
+    /// Hard deadlines can be reordered within their day but don't move to another day. Only you can do this.
+    /// </summary>
+    public int OrderDay(Actor actor, DateOnly? date, IReadOnlyList<string> ids)
+    {
+        RequireUserIntent(actor, "reorder your day");
+        if (ids.Count == 0) return 0;
+        return _store.Update(actor, d =>
+        {
+            var tasks = ids.Select(id => Find(d, id)).ToList();
+            if (tasks.FirstOrDefault(t => t.DateType == DateKind.Hard && t.Date != date) is { } hard)
+                throw new TaskRuleException($"\"{hard.Title}\" has a hard deadline; change its date on the task itself.");
+            var changed = 0;
+            for (var i = 0; i < tasks.Count; i++)
+            {
+                var t = tasks[i];
+                var touched = false;
+                if (t.Date != date)
+                {
+                    Log(t, actor, EntryKind.Activity, date is { } nd
+                        ? $"Moved by {Who(actor)} from {t.Date?.ToString("ddd MMM d") ?? "no day"} to {nd:ddd MMM d}."
+                        : $"Date cleared by {Who(actor)} (was {t.Date:ddd MMM d}).");
+                    t.Date = date;
+                    t.DateType = DateKind.Flexible;
+                    ResetRollover(t);
+                    touched = true;
+                }
+                if (t.DayRank != i) { t.DayRank = i; touched = true; }
+                if (touched) { Touch(t); changed++; }
+            }
+            return changed;
+        });
+    }
+
     public TaskItem PinToday(Actor actor, string id, bool pinned)
     {
         RequireUserIntent(actor, "change the Today pin");

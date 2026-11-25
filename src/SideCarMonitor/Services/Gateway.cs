@@ -492,6 +492,16 @@ public sealed class Gateway : IAsyncDisposable
 
     private void MapTasks(WebApplication app)
     {
+        // Weekly plan drop: the day's new order (top first); tasks dragged in from another day move there.
+        app.MapPost("/api/tasks/order", (JsonObject b) =>
+        {
+            if (_deps.Tasks is not { } t) return Results.NotFound();
+            var date = b["date"]?.GetValue<string>() is { Length: > 0 } ds ? DateOnly.Parse(ds) : (DateOnly?)null;
+            var ids = (b["ids"]?.AsArray() ?? []).Select(n => n?.GetValue<string>() ?? "").Where(s => s.Length > 0).ToList();
+            try { return Results.Ok(new { changed = t.OrderDay(SideCarTasks.Actor.User, date, ids) }); }
+            catch (SideCarTasks.TaskRuleException ex) { return Results.Json(new { error = ex.Message }, statusCode: 409); }
+        });
+
         // The to-do list's daily brief: Dismiss after reading (same as the kiosk's To-do page).
         app.MapPost("/api/tasks/brief/dismiss", () =>
         {
@@ -542,8 +552,7 @@ public sealed class Gateway : IAsyncDisposable
                     shortLabel = day.ToString("MMM d"),
                     isToday = day == today,
                     isPast = day < today,
-                    tasks = all.Where(x => Show(x, day))
-                               .OrderBy(x => x.Status).ThenBy(x => x.Priority).Select(x => TaskRow(t, x)),
+                    tasks = SideCarTasks.TaskService.InDayOrder(all.Where(x => Show(x, day))).Select(x => TaskRow(t, x)),
                 }),
                 earlier = all.Where(x => x.Status == SideCarTasks.TodoStatus.Open && x.Date is { } d && d < monday)
                              .OrderBy(x => x.Date).Select(x => TaskRow(t, x)),
