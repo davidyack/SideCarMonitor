@@ -133,7 +133,10 @@ fun WeatherScreen(state: UiState, vm: AppViewModel, onBack: () -> Unit) {
                 val cells = listOf(
                     Triple("Wind", s("wind"), s("windGust")?.let { "Gusts $it" }),
                     Triple("Humidity", s("humidity"), s("dewPoint")?.let { "Dew point $it" }),
-                    Triple("Pressure", s("pressure"), null),
+                    // "23.81 inHg station (falling)": the reading big, the rest underneath.
+                    s("pressure")?.split(' ', limit = 3).let { parts ->
+                        Triple("Pressure", parts?.take(2)?.joinToString(" "), parts?.getOrNull(2))
+                    },
                     Triple("Rain today", s("rainToday"), s("precipitationNow")?.let { "Now: $it" }),
                     Triple("Lightning today", s("lightningStrikesToday"), s("lastLightning")),
                     Triple("Feels like", s("feelsLike"), null),

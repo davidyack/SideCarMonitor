@@ -1366,7 +1366,7 @@ public sealed partial class MainWindow : Window
             highlights = hours.Count > 0 ? ForecastHighlights(hours.Take(24).ToList()) : [],
             hourly = hours.Select((h, i) => new
             {
-                time = i == 0 ? "Now" : h.Time.ToString("h tt").ToLowerInvariant(),
+                time = h.Time == thisHour ? "Now" : h.Time.ToString("h tt").ToLowerInvariant(),
                 icon = WeatherForecastView.Icon(h.Icon), temp = _wx.Temp(h.TempC), conditions = h.Conditions,
                 rain = h.PrecipProbability >= 10 ? $"{h.PrecipProbability}%" : "",
                 wind = _wx.Speed(h.WindAvgMs),
