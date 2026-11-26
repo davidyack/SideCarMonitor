@@ -151,6 +151,19 @@ data class IdeasInfo(val available: Boolean = false, val busy: Boolean = false, 
                      val pmcollab: Boolean = false)
 
 @Serializable
+data class MailItem(val id: String = "", val from: String = "", val subject: String = "", val received: String = "", val folder: String = "",
+                    val why: String = "", val summary: String = "", val flag: Boolean = false, val link: String = "",
+                    val canReturn: Boolean = false, val returned: Boolean = false)
+
+@Serializable
+data class MailDigest(val id: String = "", val at: String = "", val title: String = "", val counts: String = "", val text: String = "", val status: String = "", val sorted: Int = 0,
+                      val kept: Int = 0, val audio: Boolean = false, val items: List<MailItem> = emptyList(), val order: List<String> = emptyList())
+
+@Serializable
+data class MailInfo(val available: Boolean = false, val trial: Boolean = false, val busy: Boolean = false, val lastResult: String = "", val catchUp: String = "",
+                    val folders: List<String> = emptyList(), val digests: List<MailDigest> = emptyList())
+
+@Serializable
 data class FeedSummary(val signal: Int = 0, val newest: String? = null)
 
 @Serializable
@@ -300,6 +313,7 @@ class SideCarClient(private val pairing: Pairing) {
         path.startsWith("/api/linkedin") -> "LinkedIn action"
         path.startsWith("/api/x") -> "X action"
         path.startsWith("/api/ideas") -> "Idea action"
+        path.startsWith("/api/mail") -> "Mail action"
         path.startsWith("/api/calendar") -> "Calendar change"
         path.startsWith("/api/brief") -> "Brief"
         path.startsWith("/api/activity") -> "Activity"
@@ -354,6 +368,18 @@ class SideCarClient(private val pairing: Pairing) {
     suspend fun linkedInPodcastAudio(): ByteArray = withContext(Dispatchers.IO) {
         call(Request.Builder().url("$base/api/linkedin/podcast/audio").build()).use { it.body.bytes() }
     }
+
+    suspend fun mail(): MailInfo = withContext(Dispatchers.IO) {
+        call(Request.Builder().url("$base/api/mail").build()).use { json.decodeFromString(it.body.string()) }
+    }
+    suspend fun mailDigestAudio(id: String): ByteArray = withContext(Dispatchers.IO) {
+        call(Request.Builder().url("$base/api/mail/digest/$id/audio").build()).use { it.body.bytes() }
+    }
+    suspend fun mailArchive(id: String, archived: Boolean) = postJson("/api/mail/digest/$id/archive", buildJsonObject { put("archived", archived) })
+    suspend fun mailArchiveAll(undo: List<String>? = null) = postJson("/api/mail/archive-all",
+        buildJsonObject { if (undo != null) put("undo", kotlinx.serialization.json.JsonArray(undo.map { kotlinx.serialization.json.JsonPrimitive(it) })) })
+    suspend fun mailToInbox(id: String) = postJson("/api/mail/item/inbox", buildJsonObject { put("id", id) })
+    suspend fun mailRun() = postJson("/api/mail/run", buildJsonObject { })
 
     suspend fun linkedInPerson(url: String): LiPerson = withContext(Dispatchers.IO) {
         val u = "$base/api/linkedin/person?url=" + java.net.URLEncoder.encode(url, "UTF-8")

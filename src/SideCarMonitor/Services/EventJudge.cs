@@ -56,6 +56,18 @@ public sealed class EventJudge(Uri endpoint, string deployment, TokenCredential 
     private static readonly string[] Scopes = ["https://cognitiveservices.azure.com/.default"];
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(30) };
     private AccessToken _token;
+
+    /// <summary>The decision endpoint and deployment, for other System One callers (mail triage).</summary>
+    public Uri Endpoint => endpoint;
+    public string Deployment => deployment;
+
+    /// <summary>A current Entra token for the decision endpoint.</summary>
+    public async Task<string> BearerAsync(CancellationToken ct)
+    {
+        if (_token.ExpiresOn < DateTimeOffset.UtcNow.AddMinutes(5))
+            _token = await credential.GetTokenAsync(new TokenRequestContext(Scopes), ct);
+        return _token.Token;
+    }
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     /// <summary>Builds the judge from the agent's Foundry URL (…openai.azure.com/openai/v1/ → …services.ai.azure.com).</summary>

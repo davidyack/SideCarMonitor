@@ -445,15 +445,35 @@
                 </Grid>
             </Button>
 
+            <!-- Mail (CTC triage into "#  SideCar") above a short Settings tile -->
+            <Grid Grid.Row="1" Grid.Column="4" RowSpacing="{StaticResource Gap}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="2*" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+            <Button x:Name="MailTile" Style="{StaticResource MetroTile}"
+                    Background="{StaticResource TileCobalt}" Padding="{StaticResource TilePadding}"
+                    Click="MailTile_Click" AutomationProperties.Name="Mail">
+                <Grid>
+                    <FontIcon Glyph="&#xE715;" FontSize="{StaticResource FontIcon}"
+                              HorizontalAlignment="Left" VerticalAlignment="Top" />
+                    <TextBlock x:Name="MailTileValue" Text="--" FontSize="{StaticResource FontTitle}"
+                               HorizontalAlignment="Right" VerticalAlignment="Top" />
+                    <StackPanel VerticalAlignment="Bottom">
+                        <TextBlock x:Name="MailTileDetail" Text="Not set up" FontSize="{StaticResource FontCaption}"
+                                   Opacity="0.85" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="Mail" FontSize="{StaticResource FontBody}" />
+                    </StackPanel>
+                </Grid>
+            </Button>
             <!-- Settings -->
-            <Button Grid.Row="1" Grid.Column="4" Style="{StaticResource MetroTile}"
+            <Button Grid.Row="1" Style="{StaticResource MetroTile}"
                     Background="{StaticResource TileSteel}" Padding="{StaticResource TilePadding}"
                     AutomationProperties.Name="Settings">
-                <Grid>
-                    <FontIcon Glyph="&#xE713;" FontSize="{StaticResource FontTileIcon}"
-                              HorizontalAlignment="Left" VerticalAlignment="Top" />
-                    <TextBlock Text="Settings" FontSize="{StaticResource FontBody}" VerticalAlignment="Bottom" />
-                </Grid>
+                <StackPanel Orientation="Horizontal" Spacing="{StaticResource Gap}" VerticalAlignment="Center">
+                    <FontIcon Glyph="&#xE713;" FontSize="{StaticResource FontIcon}" />
+                    <TextBlock Text="Settings" FontSize="{StaticResource FontBody}" VerticalAlignment="Center" />
+                </StackPanel>
                 <Button.Flyout>
                     <Flyout x:Name="MenuFlyout" Placement="Top">
                         <StackPanel Spacing="{StaticResource Gap}">
@@ -485,6 +505,7 @@
                     </Flyout>
                 </Button.Flyout>
             </Button>
+            </Grid>
         </Grid>
 
         <!-- ===================== To-do ===================== -->
@@ -495,6 +516,7 @@
         <controls:CalendarPage x:Name="CalendarView" Visibility="Collapsed" />
         <controls:XPage x:Name="XView" Visibility="Collapsed" />
         <controls:IdeasPage x:Name="IdeasView" Visibility="Collapsed" />
+        <controls:MailPage x:Name="MailView" Visibility="Collapsed" />
 
         <!-- ===================== Pair phone (QR code) ===================== -->
         <Grid x:Name="PairingPage" Visibility="Collapsed" Background="{StaticResource KioskBackground}"

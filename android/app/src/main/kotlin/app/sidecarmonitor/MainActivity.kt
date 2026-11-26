@@ -120,6 +120,7 @@ class MainActivity : ComponentActivity() {
                     Screen.X -> app.sidecarmonitor.ui.XScreen(vm) { screen = Screen.Home }
                     Screen.Day -> app.sidecarmonitor.ui.DayScreen(vm) { screen = Screen.Home }
                     Screen.Ideas -> app.sidecarmonitor.ui.IdeasScreen(vm) { screen = Screen.Home }
+                    Screen.Mail -> app.sidecarmonitor.ui.MailScreen(vm) { screen = Screen.Home }
                     Screen.Car -> app.sidecarmonitor.ui.CarScreen(vm) { screen = Screen.Home }
                     Screen.LinkedIn -> LinkedInScreen(vm) { screen = Screen.Home }
                     Screen.Settings -> SettingsScreen(state, onScan = ::scan, onUnpair = vm::unpair) { screen = Screen.Home }

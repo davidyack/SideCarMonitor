@@ -138,6 +138,55 @@ public partial class App : Application
             return;
         }
 
+        // "--mail-lists": writes the To/Cc addresses of recent Inbox mail (with counts) to mail-lists.txt, to find list addresses.
+        if (cl.Contains("--mail-lists", StringComparer.OrdinalIgnoreCase))
+        {
+            _ = Task.Run(async () =>
+            {
+                var outPath = Path.Combine(Path.GetDirectoryName(TasksPath)!, "mail-lists.txt");
+                try
+                {
+                    var cal = new Services.CalendarService();
+                    var counts = new Dictionary<string, (int N, string Sample)>();
+                    string? url = "me/mailFolders/inbox/messages?$top=100&$select=subject,toRecipients,ccRecipients";
+                    for (var page = 0; page < 3 && url is not null; page++)
+                    {
+                        var res = await cal.MailGraphAsync("CTC", HttpMethod.Get, url);
+                        foreach (var m in res?["value"]?.AsArray() ?? [])
+                            foreach (var r in (m?["toRecipients"]?.AsArray() ?? []).Concat(m?["ccRecipients"]?.AsArray() ?? []))
+                            {
+                                var key = $"{r?["emailAddress"]?["name"]} <{r?["emailAddress"]?["address"]}>";
+                                counts[key] = (counts.GetValueOrDefault(key).N + 1, counts.GetValueOrDefault(key).Sample ?? m?["subject"]?.ToString() ?? "");
+                            }
+                        url = res?["@odata.nextLink"]?.GetValue<string>()?.Replace("https://graph.microsoft.com/v1.0/", "");
+                    }
+                    File.WriteAllLines(outPath, counts.OrderByDescending(c => c.Value.N).Take(60).Select(c => $"{c.Value.N}\t{c.Key}\t{c.Value.Sample}"));
+                }
+                catch (Exception ex) { File.WriteAllText(outPath, ex.Message); }
+                Environment.Exit(0);
+            });
+            return;
+        }
+
+        // Mail sign-in: "--mail-login CTC" adds mail permission to that calendar account (for mail triage).
+        if (cl.Contains("--mail-login", StringComparer.OrdinalIgnoreCase))
+        {
+            var label = cl.SkipWhile(a => !a.Equals("--mail-login", StringComparison.OrdinalIgnoreCase)).Skip(1).FirstOrDefault() ?? "CTC";
+            _ = Task.Run(async () =>
+            {
+                var log = Path.Combine(Path.GetDirectoryName(TasksPath)!, "mail.log");
+                try
+                {
+                    var who = await new Services.CalendarService().SignInAsync(label, withMail: true);
+                    var me = await new Services.CalendarService().MailGraphAsync(label, HttpMethod.Get, "me/mailFolders/inbox?$select=totalItemCount,unreadItemCount");
+                    File.AppendAllText(log, $"{DateTimeOffset.Now:u} {label} mail signed in as {who}; inbox {me?["totalItemCount"]} items\n");
+                }
+                catch (Exception ex) { File.AppendAllText(log, $"{DateTimeOffset.Now:u} {ex.GetType().Name}: {ex.Message}\n"); }
+                Environment.Exit(0);
+            });
+            return;
+        }
+
         // Calendar sign-in: "--calendar-login CTC" opens the browser to sign in that M365 account once.
         if (cl.Contains("--calendar-login", StringComparer.OrdinalIgnoreCase))
         {

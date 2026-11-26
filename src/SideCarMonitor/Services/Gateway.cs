@@ -167,6 +167,56 @@ public sealed class Gateway : IAsyncDisposable
 
     public MeetingPrep? MeetingPrep { get; set; }
     public IdeaRadar? Ideas { get; set; }
+    public SideCarMonitor.Mail.MailTriage? Mail { get; set; }
+
+    /// <summary>Mail digests (one per hourly triage run): list, audio, archive a whole digest, Back to Inbox, run now.</summary>
+    private void MapMail(WebApplication app)
+    {
+        app.MapGet("/api/mail", () =>
+        {
+            if (Mail is not { } m) return Results.Json(new { available = false });
+            return Results.Json(new
+            {
+                available = true, trial = m.Data.Trial, busy = m.Busy, lastRun = m.Data.LastRun, lastResult = m.Data.LastResult, catchUp = m.CatchUpStatus,
+                folders = SideCarMonitor.Mail.MailTriage.Folders,
+                digests = m.OpenDigests().Select(g => new
+                {
+                    g.Id, at = g.At, g.Title, g.Text, g.Status, g.Sorted, g.Kept, audio = m.AudioReady(g), order = g.Order, counts = m.FolderCounts(g),
+                    items = m.ItemsOf(g).Where(i => i.Outcome != "Inbox").Select(i => new
+                    {
+                        i.Id, i.From, i.Subject, received = i.Received, folder = i.Outcome, i.Why, i.Summary, i.Flag,
+                        link = i.WebLink, canReturn = i.Outcome != "Inbox" && !i.ReturnedToInbox && !m.Data.Trial, returned = i.ReturnedToInbox,
+                    }),
+                }),
+            });
+        });
+        app.MapGet("/api/mail/digest/{id}/audio", (string id) =>
+            Mail is { } m && m.Data.Digests.FirstOrDefault(g => g.Id == id) is { } g && m.AudioReady(g)
+                ? Results.File(File.ReadAllBytes(m.AudioPath(g)), "audio/wav", enableRangeProcessing: true) : Results.NotFound());
+        app.MapPost("/api/mail/digest/{id}/archive", (string id, JsonObject? b) =>
+        {
+            if (Mail is not { } m) return Results.NotFound();
+            m.Archive(id, b?["archived"]?.GetValue<bool>() ?? true);
+            return Results.Ok(new { ok = true });
+        });
+        app.MapPost("/api/mail/archive-all", (JsonObject? b) =>
+        {
+            if (Mail is not { } m) return Results.NotFound();
+            if (b?["undo"] is JsonArray ids) { m.Unarchive(ids.Select(x => x!.GetValue<string>())); return Results.Ok(new { ok = true }); }
+            return Results.Json(new { ok = true, ids = m.ArchiveAll() });
+        });
+        app.MapPost("/api/mail/item/inbox", async (JsonObject b) =>
+        {
+            if (Mail is not { } m || b["id"]?.GetValue<string>() is not { } id) return Results.NotFound();
+            var error = await m.ReturnToInboxAsync(id);
+            return error is null ? Results.Ok(new { ok = true }) : Results.Json(new { error }, statusCode: 400);
+        });
+        app.MapPost("/api/mail/run", () =>
+        {
+            if (Mail is { Busy: false } m) _ = Task.Run(() => m.RunAsync(onDemand: true));
+            return Results.Ok(new { ok = true });
+        });
+    }
     /// <summary>The next significant weather change ("Down to 30° by 4 pm"), set by the window.</summary>
     public Func<string?>? WeatherNext { get; set; }
     /// <summary>Forecast for the phone (highlights, hours, days), set by the window.</summary>
@@ -446,6 +496,7 @@ public sealed class Gateway : IAsyncDisposable
         MapCalendar(app);
         MapBriefs(app);
         MapMeetingsAndWeather(app);
+        MapMail(app);
         // What the phone's home tiles show: unread signal and the newest one per feed, and the house at a glance.
         app.MapGet("/api/summary", async () =>
         {

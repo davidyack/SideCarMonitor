@@ -33,6 +33,7 @@ import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Home
@@ -79,7 +80,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
-enum class Screen { Home, Cameras, Weather, Activity, Tasks, Week, House, LinkedIn, X, Day, Ideas, Car, Settings }
+enum class Screen { Home, Cameras, Weather, Activity, Tasks, Week, House, LinkedIn, X, Day, Ideas, Mail, Car, Settings }
 
 private fun JsonObject?.str(key: String): String? =
     this?.get(key)?.let { runCatching { it.jsonPrimitive.content }.getOrNull() }?.takeIf { it != "null" }
@@ -113,6 +114,9 @@ fun HomeScreen(state: UiState, vm: app.sidecarmonitor.AppViewModel, onOpen: (Scr
     // Ideas tile: count of new ideas and the best one's title.
     var ideas by remember { mutableStateOf<app.sidecarmonitor.data.IdeasInfo?>(null) }
     LaunchedEffect(state.connected) { while (true) { runCatching { vm.kiosk?.ideas("all") }.getOrNull()?.let { ideas = it }; delay(300_000) } }
+    // Mail tile: messages in digests you haven't archived.
+    var mail by remember { mutableStateOf<app.sidecarmonitor.data.MailInfo?>(null) }
+    LaunchedEffect(state.connected) { while (true) { runCatching { vm.kiosk?.mail() }.getOrNull()?.let { mail = it }; delay(300_000) } }
 
     Column(Modifier.fillMaxSize().verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         // Short outage: say the data is a saved copy (and from when), instead of going blank.
@@ -190,10 +194,19 @@ fun HomeScreen(state: UiState, vm: app.sidecarmonitor.AppViewModel, onOpen: (Scr
             Tile(SideCarColors.Steel, Modifier.weight(0.8f).height(130.dp), onClick = { onOpen(Screen.Settings) },
                 icon = Icons.Filled.Settings, value = "", detail = "", label = "Settings")
         }
-        if (ideas?.available == true) {
-            Tile(SideCarColors.Mauve, Modifier.fillMaxWidth().height(110.dp), onClick = { onOpen(Screen.Ideas) },
-                icon = androidx.compose.material.icons.Icons.Filled.Lightbulb, value = (ideas?.ideas?.count { it.status == "new" } ?: 0).toString(),
-                detail = ideas?.ideas?.firstOrNull()?.title ?: "Reading your feeds", label = "Ideas")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (mail?.available == true) {
+                val open = mail?.digests.orEmpty()
+                Tile(SideCarColors.Cobalt, Modifier.weight(1f).height(110.dp), onClick = { onOpen(Screen.Mail) },
+                    icon = androidx.compose.material.icons.Icons.Filled.Email, value = open.sumOf { it.sorted }.toString(),
+                    detail = if (open.isEmpty()) "All caught up" else "${open.size} digest${if (open.size == 1) "" else "s"} to hear",
+                    label = "Mail")
+            }
+            if (ideas?.available == true) {
+                Tile(SideCarColors.Mauve, Modifier.weight(1f).height(110.dp), onClick = { onOpen(Screen.Ideas) },
+                    icon = androidx.compose.material.icons.Icons.Filled.Lightbulb, value = (ideas?.ideas?.count { it.status == "new" } ?: 0).toString(),
+                    detail = ideas?.ideas?.firstOrNull()?.title ?: "Reading your feeds", label = "Ideas")
+            }
         }
     }
 }

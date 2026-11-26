@@ -554,6 +554,19 @@ public sealed partial class MainWindow : Window
         _ = Task.Run(() => radar.CatchUpAsync(posts));
     }
 
+    private SideCarMonitor.Mail.MailTriage? _mail;
+    private DateTime _lastMailCheck = DateTime.MinValue;
+
+    /// <summary>Hourly mail triage (the first pass a couple of minutes after start).</summary>
+    private void CheckMail()
+    {
+        if (_mail is null || _mail.Busy || DateTime.Now - _lastMailCheck < TimeSpan.FromMinutes(2)) return;
+        _lastMailCheck = DateTime.Now;
+        if (!_mail.IsDue(DateTime.Now)) return;
+        var mail = _mail;
+        _ = Task.Run(() => mail.RunAsync());
+    }
+
     private MeetingPrep? _meetingPrep;
     private DateTime _lastMeetingCheck;
     private void CheckMeetings()
@@ -940,6 +953,66 @@ public sealed partial class MainWindow : Window
     // ---- LinkedIn tile ----
     private LinkedInFeed? _linkedIn;
 
+    private Window? _mailWindow;
+
+    /// <summary>
+    /// Mail opens in its own window, maximized on the main display (not the kiosk's), sized for a desk monitor.
+    /// With only the kiosk screen connected it opens as a page here.
+    /// </summary>
+    private bool OpenMailWindow()
+    {
+        var kioskArea = Microsoft.UI.Windowing.DisplayArea.GetFromWindowId(AppWindow.Id, Microsoft.UI.Windowing.DisplayAreaFallback.Nearest);
+        var areas = Microsoft.UI.Windowing.DisplayArea.FindAll();
+        Microsoft.UI.Windowing.DisplayArea? target = null;
+        for (var n = 0; n < areas.Count; n++)
+        {
+            var d = areas[n];
+            if (d.DisplayId.Value == kioskArea.DisplayId.Value) continue;
+            if (target is null || d.IsPrimary || (!target.IsPrimary && d.WorkArea.Width * d.WorkArea.Height > target.WorkArea.Width * target.WorkArea.Height)) target = d;
+        }
+        if (target is null) return false;
+        if (_mailWindow is not null)
+        {
+            try { _mailWindow.Activate(); return true; } catch { _mailWindow = null; }
+        }
+        var page = new Controls.MailPage(0.55) { InWindow = true };
+        page.Initialize(_mail);
+        var w = new Window { Title = "SideCar Mail", Content = page };
+        if (_mail is not null)
+        {
+            Action changed = () => w.DispatcherQueue.TryEnqueue(() => page.Render());
+            _mail.Changed += changed;
+            w.Closed += (_, _) => { _mail.Changed -= changed; _mailWindow = null; };
+        }
+        else w.Closed += (_, _) => _mailWindow = null;
+        var wa = target.WorkArea;
+        w.AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(wa.X + 40, wa.Y + 40, Math.Max(800, wa.Width - 80), Math.Max(600, wa.Height - 80)));
+        if (w.AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter op) op.Maximize();
+        _mailWindow = w;
+        w.Activate();
+        page.Show();
+        return true;
+    }
+
+    private void MailTile_Click(object sender, RoutedEventArgs e)
+    {
+        if (OpenMailWindow()) return;
+        HideOverlayPages();
+        HomePage.Visibility = Visibility.Collapsed;
+        MailView.Visibility = Visibility.Visible;
+        MailView.Show();
+    }
+
+    /// <summary>Mail tile: how many were sorted in the last 24 hours, and how many were kept for you.</summary>
+    private void UpdateMailTile()
+    {
+        if (_mail is null) { MailTileValue.Text = "--"; MailTileDetail.Text = "Not set up"; return; }
+        var open = _mail.OpenDigests();
+        MailTileValue.Text = open.Sum(g => g.Sorted).ToString();
+        MailTileDetail.Text = (_mail.Data.Trial ? "Trial · " : "") + (open.Count == 0 ? (_mail.Busy ? "Sorting…" : "All caught up")
+            : $"{open.Count} digest{(open.Count == 1 ? "" : "s")} to hear");
+    }
+
     private void IdeasTile_Click(object sender, RoutedEventArgs e)
     {
         HideOverlayPages();
@@ -996,6 +1069,7 @@ public sealed partial class MainWindow : Window
         CalendarView.Visibility = Visibility.Collapsed;
         XView.Visibility = Visibility.Collapsed;
         IdeasView.Visibility = Visibility.Collapsed;
+        MailView.Visibility = Visibility.Collapsed;
     }
     private string _activityFilter = "all";
     private HomeEventStream? _houseEvents;
@@ -1107,6 +1181,7 @@ public sealed partial class MainWindow : Window
         CheckBriefs();
         CheckMeetings();
         CheckIdeas();
+        CheckMail();
         CheckLinkedInSchedule();
         if (HomePage.Visibility == Visibility.Visible) RefreshHouseTile();
         UpdateWeatherStatus();
@@ -1169,6 +1244,7 @@ public sealed partial class MainWindow : Window
     {
         XView.Visibility = Visibility.Collapsed;
         IdeasView.Visibility = Visibility.Collapsed;
+        MailView.Visibility = Visibility.Collapsed;
         CalendarView.Visibility = Visibility.Collapsed;
         LinkedInView.Visibility = Visibility.Collapsed;
         ActivityView.Visibility = Visibility.Collapsed;
@@ -1265,6 +1341,20 @@ public sealed partial class MainWindow : Window
         _reminders = new ReminderService(_taskService);
         _reminders.Changed += () => DispatcherQueue.TryEnqueue(UpdateReminderBar);
         _calendar = new CalendarService();
+        // Mail triage (CTC), ported from DailMailManager v4: hourly, on Microsoft-Decision.
+        if (_judge is not null && _agent is not null && _calendar.Has("CTC"))
+            _mail = new SideCarMonitor.Mail.MailTriage(_calendar, new SideCarMonitor.Mail.TypeSafeClient(_judge.Endpoint, _judge.Deployment, _judge.BearerAsync), _agent)
+            { Interests = a.Interests, Voice = _voice };
+        MailView.Initialize(_mail);
+        MailView.HomeRequested += ShowHome;
+        if (_mail is not null)
+            _mail.Changed += () => DispatcherQueue.TryEnqueue(() =>
+            {
+                UpdateMailTile();
+        if (_mail is { } mt) _ = Task.Run(() => mt.UpgradeDigestsAsync()); // tag older digests' lines with their messages
+                if (MailView.Visibility == Visibility.Visible) MailView.Render();
+            });
+        UpdateMailTile();
         _calendarTools = new CalendarTools(_calendar, _judge);
         _calendar.Changed += () => DispatcherQueue.TryEnqueue(UpdateMeetingTile);
         CalendarView.Initialize(_calendar, _calendarTools);
@@ -1827,6 +1917,7 @@ public sealed partial class MainWindow : Window
             _gateway.Briefs = _briefs;
             _gateway.MeetingPrep = _meetingPrep;
             _gateway.Ideas = _ideas;
+        _gateway.Mail = _mail;
             _gateway.Forecast = WeatherForPhone;
             _gateway.WeatherNext = () => NextWeatherChange(_wxCloud?.Outlook, DateTime.Now);
             if (_voice is { } voice) _gateway.Synthesize = text => voice.SynthesizeWavAsync(text, CancellationToken.None);

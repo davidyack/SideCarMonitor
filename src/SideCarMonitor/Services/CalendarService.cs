@@ -23,6 +23,8 @@ public sealed class CalendarService
 {
     public const string ClientId = "41eef356-6325-4650-96e5-d925e07ff905";
     private static readonly string[] Scopes = ["Calendars.ReadWrite", "User.Read"];
+    /// <summary>Mail triage (MailTriage) reads and moves mail in the same signed-in account.</summary>
+    public static readonly string[] MailScopes = ["Mail.ReadWrite", "User.Read"];
     private static readonly string Folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SideCarMonitor");
     private static readonly string AccountsPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SideCarMonitor", "calendars.json");
@@ -56,29 +58,38 @@ public sealed class CalendarService
     }
 
     /// <summary>Opens the browser to sign in one account and remembers it under <paramref name="label"/>.</summary>
-    public async Task<string> SignInAsync(string label)
+    public async Task<string> SignInAsync(string label, bool withMail = false)
     {
         var app = await AppAsync();
-        var result = await app.AcquireTokenInteractive(Scopes).WithPrompt(Prompt.SelectAccount).ExecuteAsync();
+        // Mail is consented in addition to calendars ("--mail-login CTC"), for the same account.
+        var result = await app.AcquireTokenInteractive(Scopes).WithExtraScopesToConsent(withMail ? MailScopes : [])
+            .WithPrompt(withMail ? Prompt.Consent : Prompt.SelectAccount).ExecuteAsync();
         _accounts[label] = result.Account.HomeAccountId.Identifier;
         File.WriteAllText(AccountsPath, JsonSerializer.Serialize(_accounts, new JsonSerializerOptions { WriteIndented = true }));
         return result.Account.Username;
     }
 
-    private async Task<string> TokenAsync(string label)
+    private async Task<string> TokenAsync(string label, string[]? scopes = null)
     {
         var app = await AppAsync();
         var account = (await app.GetAccountsAsync()).FirstOrDefault(a => a.HomeAccountId.Identifier == _accounts[label])
                       ?? throw new InvalidOperationException($"{label} needs signing in again");
-        try { return (await app.AcquireTokenSilent(Scopes, account).ExecuteAsync()).AccessToken; }
+        try { return (await app.AcquireTokenSilent(scopes ?? Scopes, account).ExecuteAsync()).AccessToken; }
         catch (MsalUiRequiredException) { throw new InvalidOperationException($"{label} needs signing in again"); }
     }
 
-    private async Task<JsonNode?> GraphAsync(string label, HttpMethod method, string path, JsonObject? body = null)
+    /// <summary>Graph calls for mail (needs the mail consent from "--mail-login").</summary>
+    public Task<JsonNode?> MailGraphAsync(string label, HttpMethod method, string path, JsonObject? body = null, bool preferText = false) =>
+        GraphAsync(label, method, path, body, MailScopes, preferText);
+
+    public bool Has(string label) { AppAsync().GetAwaiter().GetResult(); return _accounts.ContainsKey(label); }
+
+    private async Task<JsonNode?> GraphAsync(string label, HttpMethod method, string path, JsonObject? body = null, string[]? scopes = null, bool preferText = false)
     {
         using var req = new HttpRequestMessage(method, path);
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", await TokenAsync(label));
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", await TokenAsync(label, scopes));
         req.Headers.Add("Prefer", "outlook.timezone=\"UTC\"");
+        if (preferText) req.Headers.Add("Prefer", "outlook.body-content-type=\"text\""); // plain-text bodies for mail triage
         if (body is not null) req.Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json");
         using var res = await _http.SendAsync(req);
         var text = await res.Content.ReadAsStringAsync();
