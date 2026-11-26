@@ -39,7 +39,16 @@ public sealed class MailTriage(CalendarService graph, TypeSafeClient decision, A
         public string FromAddress { get; set; } = "";
         public string Subject { get; set; } = "";
         public DateTimeOffset Received { get; set; }
-        public string WebLink { get; set; } = "";
+        /// <summary>
+        /// Outlook on the web link, always built from the message's current id (a move gives it a new id, so the link Graph
+        /// returned at triage time would point at the old Inbox copy and never load). Same format as Graph's webLink.
+        /// </summary>
+        public string WebLink
+        {
+            get => Id.Length == 0 ? "" : "https://outlook.office365.com/owa/?ItemID=" +
+                   Uri.EscapeDataString(Id.Replace('-', '/').Replace('_', '+')) + "&exvsurl=1&viewmodel=ReadMessageItem";
+            set { } // older state files stored it; ignored
+        }
         public string Outcome { get; set; } = "Inbox";   // a ###SideCar folder name, or Inbox
         public bool Flag { get; set; }
         public string Why { get; set; } = "";
@@ -263,7 +272,6 @@ public sealed class MailTriage(CalendarService graph, TypeSafeClient decision, A
         {
             Id = id, From = fromName, FromAddress = fromAddr, Subject = subject, At = DateTimeOffset.Now,
             Received = DateTimeOffset.TryParse(m["receivedDateTime"]?.GetValue<string>(), out var r) ? r : DateTimeOffset.Now,
-            WebLink = m["webLink"]?.GetValue<string>() ?? "",
         };
 
         // Your rule: Julie Yack always stays in the Inbox, flagged.
@@ -552,11 +560,37 @@ public sealed class MailTriage(CalendarService graph, TypeSafeClient decision, A
         return (line[m.Length..], items);
     }
 
-    /// <summary>Re-writes open digests made before lines were tagged with their messages (once, at start).</summary>
+    /// <summary>
+    /// At start: repairs what a failed step left behind. Moved messages without a summary are fetched again and summarized,
+    /// then open digests that failed, predate line tags, or covered those messages are rewritten.
+    /// </summary>
     public async Task UpgradeDigestsAsync()
     {
-        foreach (var d in Data.Digests.Where(d => !d.Archived && d.Order.Count == 0 && d.Status != "writing").ToList())
-            await WriteDigestAsync(d);
+        if (!await _gate.WaitAsync(0)) return;
+        Busy = true;
+        try
+        {
+            var missing = Data.Items.Where(i => i.Outcome != "Inbox" && i.Summary.Length == 0).ToList();
+            var k = 0;
+            foreach (var i in missing)
+            {
+                Report($"Repairing summaries: fetching {++k} of {missing.Count}\u2026");
+                try
+                {
+                    var m = await graph.MailGraphAsync(label, HttpMethod.Get, $"me/messages/{i.Id}?$select=body", preferText: true);
+                    var body = m?["body"]?["content"]?.GetValue<string>() ?? "";
+                    _bodies[i.Id] = body.Length > 6000 ? body[..6000] : body;
+                }
+                catch { /* deleted or moved elsewhere: leave it */ }
+            }
+            var fetched = missing.Where(i => _bodies.ContainsKey(i.Id)).ToList();
+            if (fetched.Count > 0) { Report($"Repairing summaries: summarizing {fetched.Count}\u2026"); await SummarizeAsync(fetched); }
+            var touched = fetched.Where(i => i.Summary.Length > 0).Select(i => i.Digest).ToHashSet();
+            foreach (var d in Data.Digests.Where(d => !d.Archived && d.Status != "writing"
+                         && (d.Order.Count == 0 || d.Status.StartsWith("failed") || touched.Contains(d.Id))).ToList())
+                await WriteDigestAsync(d);
+        }
+        finally { Busy = false; Progress = ""; _gate.Release(); Changed?.Invoke(); }
     }
 
     // ---- Graph actions ----
