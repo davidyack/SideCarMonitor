@@ -95,7 +95,7 @@ public sealed partial class MailPage : UserControl
         }
         var d = _mail.Data;
         _subtitle.Text = (d.Trial ? "TRIAL: nothing is moved yet · " : "") +
-                         (_mail.Busy ? "Sorting new mail\u2026" : d.LastRun is { } at ? $"Checked {at:h:mm tt} · {d.LastResult}" : "Not run yet") +
+                         (_mail.Busy ? (_mail.Progress.Length > 0 ? _mail.Progress : "Sorting new mail\u2026") : d.LastRun is { } at ? $"Checked {at:h:mm tt} · {d.LastResult}" : "Not run yet") +
                          " · CTC, hourly · one digest per run · " + _mail.CatchUpStatus;
         if (_note.Length > 0)
         {
@@ -286,13 +286,15 @@ public sealed partial class MailPage : UserControl
     {
         _bar.Children.Clear();
         if (_mail is null) return;
-        _bar.Children.Add(Btn("\uE72C", _mail.Busy ? "Sorting\u2026" : "Run now", "PanelBorder", () =>
+        _bar.Children.Add(Btn("\uE72C", _mail.Busy ? (_mail.Progress.Length > 0 ? _mail.Progress : "Sorting\u2026") : "Run now", "PanelBorder", () =>
         {
             if (_mail.Busy) return;
             var mail = _mail;
             _ = Task.Run(() => mail.RunAsync(onDemand: true));
             Render();
         }));
+        if (_mail.CatchingUp)
+            _bar.Children.Add(Btn("\uE71A", "Stop catch-up", "AlertBrush", () => { _mail.StopCatchUp(); Render(); }));
         var openCount = _mail.OpenDigests().Count;
         if (openCount > 1)
             _bar.Children.Add(Btn("\uE7B8", $"Archive all ({openCount})", "TileEmerald", () =>

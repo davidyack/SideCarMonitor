@@ -138,6 +138,42 @@ public partial class App : Application
             return;
         }
 
+        // "--mail-count": Inbox messages per day for the last 30 days (and the folder totals) to mail-count.txt, for checking catch-up.
+        if (cl.Contains("--mail-count", StringComparer.OrdinalIgnoreCase))
+        {
+            _ = Task.Run(async () =>
+            {
+                var outPath = Path.Combine(Path.GetDirectoryName(TasksPath)!, "mail-count.txt");
+                var lines = new List<string>();
+                try
+                {
+                    var cal = new Services.CalendarService();
+                    var inbox = await cal.MailGraphAsync("CTC", HttpMethod.Get, "me/mailFolders/inbox?$select=totalItemCount,unreadItemCount,childFolderCount");
+                    lines.Add($"inbox total {inbox?["totalItemCount"]}, unread {inbox?["unreadItemCount"]}, child folders {inbox?["childFolderCount"]}");
+                    var since = DateTimeOffset.UtcNow.AddDays(-30);
+                    var days = new SortedDictionary<string, int>();
+                    string? url = $"me/mailFolders/inbox/messages?$filter=receivedDateTime ge {since:yyyy-MM-ddTHH:mm:ssZ}&$select=receivedDateTime&$top=500";
+                    var total = 0;
+                    while (url is not null)
+                    {
+                        var res = await cal.MailGraphAsync("CTC", HttpMethod.Get, url);
+                        foreach (var m in res?["value"]?.AsArray() ?? [])
+                        {
+                            var d = DateTimeOffset.Parse(m!["receivedDateTime"]!.GetValue<string>()).ToLocalTime().ToString("MM-dd");
+                            days[d] = days.GetValueOrDefault(d) + 1; total++;
+                        }
+                        url = res?["@odata.nextLink"]?.GetValue<string>()?.Replace("https://graph.microsoft.com/v1.0/", "");
+                    }
+                    lines.Add($"last 30 days in Inbox: {total}");
+                    lines.AddRange(days.Select(kv => $"{kv.Key} {kv.Value}"));
+                }
+                catch (Exception ex) { lines.Add(ex.Message); }
+                File.WriteAllLines(outPath, lines);
+                Environment.Exit(0);
+            });
+            return;
+        }
+
         // "--mail-lists": writes the To/Cc addresses of recent Inbox mail (with counts) to mail-lists.txt, to find list addresses.
         if (cl.Contains("--mail-lists", StringComparer.OrdinalIgnoreCase))
         {

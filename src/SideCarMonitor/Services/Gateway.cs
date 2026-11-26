@@ -177,7 +177,7 @@ public sealed class Gateway : IAsyncDisposable
             if (Mail is not { } m) return Results.Json(new { available = false });
             return Results.Json(new
             {
-                available = true, trial = m.Data.Trial, busy = m.Busy, lastRun = m.Data.LastRun, lastResult = m.Data.LastResult, catchUp = m.CatchUpStatus,
+                available = true, trial = m.Data.Trial, busy = m.Busy, lastRun = m.Data.LastRun, lastResult = m.Data.LastResult, catchUp = m.CatchUpStatus, progress = m.Progress, catchingUp = m.CatchingUp,
                 folders = SideCarMonitor.Mail.MailTriage.Folders,
                 digests = m.OpenDigests().Select(g => new
                 {
@@ -211,6 +211,7 @@ public sealed class Gateway : IAsyncDisposable
             var error = await m.ReturnToInboxAsync(id);
             return error is null ? Results.Ok(new { ok = true }) : Results.Json(new { error }, statusCode: 400);
         });
+        app.MapPost("/api/mail/stop", () => { Mail?.StopCatchUp(); return Results.Ok(new { ok = true }); });
         app.MapPost("/api/mail/run", () =>
         {
             if (Mail is { Busy: false } m) _ = Task.Run(() => m.RunAsync(onDemand: true));

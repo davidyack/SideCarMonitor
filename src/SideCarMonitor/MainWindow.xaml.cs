@@ -1009,7 +1009,7 @@ public sealed partial class MainWindow : Window
         if (_mail is null) { MailTileValue.Text = "--"; MailTileDetail.Text = "Not set up"; return; }
         var open = _mail.OpenDigests();
         MailTileValue.Text = open.Sum(g => g.Sorted).ToString();
-        MailTileDetail.Text = (_mail.Data.Trial ? "Trial · " : "") + (open.Count == 0 ? (_mail.Busy ? "Sorting…" : "All caught up")
+        MailTileDetail.Text = (_mail.Data.Trial ? "Trial · " : "") + (_mail.Busy && _mail.Progress.Length > 0 ? _mail.Progress : open.Count == 0 ? (_mail.Busy ? "Sorting…" : "All caught up")
             : $"{open.Count} digest{(open.Count == 1 ? "" : "s")} to hear");
     }
 

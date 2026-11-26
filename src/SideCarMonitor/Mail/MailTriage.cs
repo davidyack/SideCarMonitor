@@ -47,6 +47,8 @@ public sealed class MailTriage(CalendarService graph, TypeSafeClient decision, A
         public bool ReturnedToInbox { get; set; }
         public string Summary { get; set; } = "";
         public bool Extended { get; set; }
+        /// <summary>Sorted by the catch-up (its digests are per day of mail).</summary>
+        public bool CatchUp { get; set; }
         /// <summary>The digest (one per run) this message is in.</summary>
         public string Digest { get; set; } = "";
         public DateTimeOffset At { get; set; }
@@ -82,6 +84,9 @@ public sealed class MailTriage(CalendarService graph, TypeSafeClient decision, A
         public DateTimeOffset? CatchUpFrom { get; set; }    // where the next batch starts
         public DateTimeOffset? CatchUpUntil { get; set; }   // where the regular runs began
         public bool CatchUpDone { get; set; }
+        public bool CatchUpUnread { get; set; }   // catch-up covers all unread Inbox mail (not just 30 days)
+        public int CatchUpTotal { get; set; }
+        public int CatchUpBatches { get; set; }
         public int CatchUpCount { get; set; }
 
         /// <summary>One digest per run: the spoken rundown of that run's mail, played and archived as a set.</summary>
@@ -93,90 +98,36 @@ public sealed class MailTriage(CalendarService graph, TypeSafeClient decision, A
     private readonly SemaphoreSlim _gate = new(1, 1);
     public State Data { get; } = Load();
     public bool Busy { get; private set; }
+    /// <summary>What the current run is doing ("Catch-up: sorting 23 of 50…"), for the page, tile and phone.</summary>
+    public string Progress { get; private set; } = "";
+    private void Report(string text) { Progress = text; Changed?.Invoke(); }
     public event Action? Changed;
 
     public bool IsDue(DateTime now) => Data.LastRun is not { } last || now - last.LocalDateTime >= TimeSpan.FromHours(1);
 
-    public const int CatchUpBatch = 50;
-    public const int CatchUpDays = 30;
+    public const int CatchUpBatch = 100;
+    private const string Select = "&$select=id,subject,from,toRecipients,ccRecipients,receivedDateTime,flag,bodyPreview,body,webLink,internetMessageHeaders";
+    private volatile bool _stopCatchUp;
 
-    /// <summary>One pass over new Inbox mail; on demand (Run now) also the next catch-up batch. Returns a one-line result.</summary>
+    /// <summary>True while the catch-up is working through unread mail.</summary>
+    public bool CatchingUp { get; private set; }
+
+    /// <summary>Stops the catch-up after the message it's on (it picks up where it left off next Run now).</summary>
+    public void StopCatchUp() { _stopCatchUp = true; Report("Stopping after this message\u2026"); }
+
+    /// <summary>Hourly: new Inbox mail. Run now (onDemand) also starts the catch-up over every unread Inbox message.</summary>
     public async Task<string> RunAsync(CancellationToken ct = default) => await RunAsync(onDemand: false, ct);
 
     public async Task<string> RunAsync(bool onDemand, CancellationToken ct = default)
     {
         if (!await _gate.WaitAsync(0, ct)) return "Already running";
-        Busy = true; Changed?.Invoke();
+        Busy = true; _stopCatchUp = false; Report("Checking for new mail\u2026");
         try
         {
             Data.Me ??= (await graph.MailGraphAsync(label, HttpMethod.Get, "me?$select=mail,userPrincipalName"))?["mail"]?.GetValue<string>();
             if (!Data.Trial) await EnsureFoldersAsync();
-            // New mail only: since the last run (a little overlap), or the last 24 hours the first time.
-            var since = (Data.LastRun ?? DateTimeOffset.Now.AddHours(-24)).AddMinutes(-10).UtcDateTime;
-            Data.CatchUpUntil ??= Data.Items.Count > 0 ? Data.Items.Min(i => i.Received) : new DateTimeOffset(since, TimeSpan.Zero);
-            Data.CatchUpFrom ??= DateTimeOffset.Now.AddDays(-CatchUpDays);
-            var seen = Data.Items.Select(i => i.Id).ToHashSet();
-            var fresh = new List<JsonNode>();
-            var url = $"me/mailFolders/inbox/messages?$filter=receivedDateTime ge {since:yyyy-MM-ddTHH:mm:ssZ}&$orderby=receivedDateTime asc&$top=50" +
-                      "&$select=id,subject,from,toRecipients,ccRecipients,receivedDateTime,flag,bodyPreview,body,webLink,internetMessageHeaders";
-            while (url is not null && fresh.Count < 300)
-            {
-                var page = await graph.MailGraphAsync(label, HttpMethod.Get, url, preferText: true);
-                foreach (var m in page?["value"]?.AsArray() ?? []) if (m?["id"]?.GetValue<string>() is { } id && !seen.Contains(id)) fresh.Add(m);
-                url = page?["@odata.nextLink"]?.GetValue<string>()?.Replace("https://graph.microsoft.com/v1.0/", "");
-            }
-            int moved = 0, kept = 0;
-            foreach (var m in fresh)
-            {
-                ct.ThrowIfCancellationRequested();
-                var item = await TriageOneAsync(m, ct);
-                if (item.Outcome == "Inbox") kept++; else moved++;
-                Data.Items.Add(item);
-                Save();
-            }
-            await SummarizeAsync(Data.Items.Where(i => i.Summary.Length == 0 && _bodies.ContainsKey(i.Id) && i.Outcome != "Inbox").ToList());
-            // This run's digest: every message moved out of the Inbox that isn't in a digest yet (kept mail is still in your Inbox).
-            var newDigests = new List<Digest>();
-            var forDigest = Data.Items.Where(i => i.Digest.Length == 0 && i.Outcome != "Inbox").ToList();
-            if (forDigest.Count > 0) newDigests.Add(MakeDigest(forDigest, ""));
-
-            // On demand: the next catch-up batch (its own digest).
-            var catchUpNote = "";
-            if (onDemand && !Data.CatchUpDone)
-            {
-                var batch = new List<JsonNode>();
-                var url2 = $"me/mailFolders/inbox/messages?$filter=receivedDateTime ge {Data.CatchUpFrom!.Value.UtcDateTime:yyyy-MM-ddTHH:mm:ssZ} and receivedDateTime lt {Data.CatchUpUntil!.Value.UtcDateTime:yyyy-MM-ddTHH:mm:ssZ}" +
-                           $"&$orderby=receivedDateTime asc&$top={CatchUpBatch + 10}&$select=id,subject,from,toRecipients,ccRecipients,receivedDateTime,flag,bodyPreview,body,webLink,internetMessageHeaders";
-                var page2 = await graph.MailGraphAsync(label, HttpMethod.Get, url2, preferText: true);
-                var all = page2?["value"]?.AsArray().Where(m => m is not null).Select(m => m!).ToList() ?? [];
-                var known = Data.Items.Select(i => i.Id).ToHashSet();
-                batch = all.Where(m => !known.Contains(m["id"]!.GetValue<string>())).Take(CatchUpBatch).ToList();
-                var caught = new List<Item>();
-                foreach (var m in batch)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    var item = await TriageOneAsync(m, ct);
-                    item.Digest = "";
-                    Data.Items.Add(item); caught.Add(item);
-                    Save();
-                }
-                if (batch.Count > 0) Data.CatchUpFrom = caught.Max(i => i.Received).AddSeconds(1);
-                if (all.Count < CatchUpBatch) Data.CatchUpDone = true;
-                Data.CatchUpCount += batch.Count;
-                await SummarizeAsync(caught.Where(i => i.Summary.Length == 0 && _bodies.ContainsKey(i.Id) && i.Outcome != "Inbox").ToList());
-                var moved2 = caught.Where(i => i.Outcome != "Inbox").ToList();
-                if (moved2.Count > 0)
-                    newDigests.Add(MakeDigest(moved2, $"Catch-up \u00b7 {caught.Min(i => i.Received).LocalDateTime:MMM d}\u2013{caught.Max(i => i.Received).LocalDateTime:MMM d}"));
-                catchUpNote = $"; catch-up: {batch.Count} older ({moved2.Count} {(Data.Trial ? "would move" : "moved")})" + (Data.CatchUpDone ? ", all 30 days done" : "");
-            }
-            Data.Items.RemoveAll(i => i.At < DateTimeOffset.Now.AddDays(-14));
-            Data.Digests.RemoveAll(d => d.At < DateTimeOffset.Now.AddDays(-14));
-            Data.LastRun = DateTimeOffset.Now;
-            Data.LastResult = $"{fresh.Count} new: {moved} {(Data.Trial ? "would move" : "moved")} to {Root}, {kept} kept in the Inbox" + catchUpNote;
-            Save();
-            SystemEvents.Report(Data.Trial ? "Mail triage (trial)" : "Mail triage", Data.LastResult);
-            Changed?.Invoke();
-            foreach (var g in newDigests) await WriteDigestAsync(g);
+            await NewMailPassAsync(ct);
+            if (onDemand && !Data.CatchUpDone) await CatchUpAsync(ct);
             return Data.LastResult;
         }
         catch (Exception ex)
@@ -184,7 +135,104 @@ public sealed class MailTriage(CalendarService graph, TypeSafeClient decision, A
             Data.LastResult = $"Failed: {ex.Message}"; Save();
             return Data.LastResult;
         }
-        finally { Busy = false; _gate.Release(); Changed?.Invoke(); }
+        finally { Busy = false; CatchingUp = false; Progress = ""; _gate.Release(); Changed?.Invoke(); }
+    }
+
+    /// <summary>New mail since the last pass: sort, summarize, one digest.</summary>
+    private async Task NewMailPassAsync(CancellationToken ct)
+    {
+        // Since the last run (a little overlap), or the last 24 hours the first time. Catch-up covers everything before.
+        var since = (Data.LastRun ?? DateTimeOffset.Now.AddHours(-24)).AddMinutes(-10).UtcDateTime;
+        Data.CatchUpUntil ??= Data.Items.Count > 0 ? Data.Items.Min(i => i.Received) : new DateTimeOffset(since, TimeSpan.Zero);
+        var seen = Data.Items.Select(i => i.Id).ToHashSet();
+        var fresh = new List<JsonNode>();
+        var url = $"me/mailFolders/inbox/messages?$filter=receivedDateTime ge {since:yyyy-MM-ddTHH:mm:ssZ}&$orderby=receivedDateTime asc&$top=50" + Select;
+        while (url is not null && fresh.Count < 300)
+        {
+            var page = await graph.MailGraphAsync(label, HttpMethod.Get, url, preferText: true);
+            foreach (var m in page?["value"]?.AsArray() ?? []) if (m?["id"]?.GetValue<string>() is { } id && !seen.Contains(id)) fresh.Add(m);
+            url = page?["@odata.nextLink"]?.GetValue<string>()?.Replace("https://graph.microsoft.com/v1.0/", "");
+        }
+        int moved = 0, kept = 0, k = 0;
+        foreach (var m in fresh)
+        {
+            Report($"Sorting new mail: {++k} of {fresh.Count}\u2026");
+            ct.ThrowIfCancellationRequested();
+            var item = await TriageOneAsync(m, ct);
+            if (item.Outcome == "Inbox") kept++; else moved++;
+            Data.Items.Add(item);
+            Save();
+        }
+        var toSummarize = Data.Items.Where(i => !i.CatchUp && i.Summary.Length == 0 && _bodies.ContainsKey(i.Id) && i.Outcome != "Inbox").ToList();
+        if (toSummarize.Count > 0) Report($"Summarizing {toSummarize.Count} messages\u2026");
+        await SummarizeAsync(toSummarize);
+        var forDigest = Data.Items.Where(i => !i.CatchUp && i.Digest.Length == 0 && i.Outcome != "Inbox").ToList();
+        var digest = forDigest.Count > 0 ? MakeDigest(forDigest, "") : null;
+        Data.Items.RemoveAll(i => i.At < DateTimeOffset.Now.AddDays(-14));
+        Data.Digests.RemoveAll(d => d.At < DateTimeOffset.Now.AddDays(-14));
+        Data.LastRun = DateTimeOffset.Now;
+        Data.LastResult = $"{fresh.Count} new: {moved} {(Data.Trial ? "would move" : "moved")} to {Root}, {kept} kept in the Inbox";
+        Save();
+        SystemEvents.Report(Data.Trial ? "Mail triage (trial)" : "Mail triage", Data.LastResult);
+        Changed?.Invoke();
+        if (digest is not null) await WriteDigestAsync(digest);
+    }
+
+    /// <summary>
+    /// Catch-up: every unread Inbox message from before the regular runs began, oldest first, up to 100 per batch with one
+    /// digest per batch, until none are left or Stop. New mail is still checked every hour in between.
+    /// </summary>
+    private async Task CatchUpAsync(CancellationToken ct)
+    {
+        CatchingUp = true;
+        if (Data.CatchUpFrom is null || !Data.CatchUpUnread) { Data.CatchUpFrom = new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero); Data.CatchUpUnread = true; Data.CatchUpCount = 0; Data.CatchUpDone = false; }
+        if (Data.CatchUpTotal == 0)
+        {
+            var inbox = await graph.MailGraphAsync(label, HttpMethod.Get, "me/mailFolders/inbox?$select=unreadItemCount");
+            Data.CatchUpTotal = inbox?["unreadItemCount"]?.GetValue<int>() ?? 0;
+        }
+        while (!_stopCatchUp && !Data.CatchUpDone)
+        {
+            ct.ThrowIfCancellationRequested();
+            Report($"Catch-up: finding unread mail\u2026 ({Data.CatchUpCount} of ~{Data.CatchUpTotal} done)");
+            var url = $"me/mailFolders/inbox/messages?$filter=receivedDateTime ge {Data.CatchUpFrom!.Value.UtcDateTime:yyyy-MM-ddTHH:mm:ssZ} and receivedDateTime lt {Data.CatchUpUntil!.Value.UtcDateTime:yyyy-MM-ddTHH:mm:ssZ} and isRead eq false" +
+                      $"&$orderby=receivedDateTime asc&$top={CatchUpBatch}" + Select;
+            var page = await graph.MailGraphAsync(label, HttpMethod.Get, url, preferText: true);
+            var all = page?["value"]?.AsArray().Where(m => m is not null).Select(m => m!).ToList() ?? [];
+            var known = Data.Items.Select(i => i.Id).ToHashSet();
+            var caught = new List<Item>();
+            foreach (var m in all)
+            {
+                if (_stopCatchUp) break;
+                var received = DateTimeOffset.TryParse(m["receivedDateTime"]?.GetValue<string>(), out var r) ? r : DateTimeOffset.Now;
+                if (!known.Contains(m["id"]!.GetValue<string>()))
+                {
+                    Report($"Catch-up: {received.LocalDateTime:MMM d} \u00b7 {Data.CatchUpCount + 1} of ~{Data.CatchUpTotal}");
+                    var item = await TriageOneAsync(m, ct);
+                    item.CatchUp = true;
+                    Data.Items.Add(item); caught.Add(item);
+                    Data.CatchUpCount++;
+                }
+                Data.CatchUpFrom = received.AddSeconds(1);
+                Save();
+            }
+            if (all.Count < CatchUpBatch && !_stopCatchUp) Data.CatchUpDone = true;
+            var toSummarize = caught.Where(i => i.Summary.Length == 0 && _bodies.ContainsKey(i.Id) && i.Outcome != "Inbox").ToList();
+            if (toSummarize.Count > 0) Report($"Catch-up: summarizing {toSummarize.Count} messages\u2026 ({Data.CatchUpCount} of ~{Data.CatchUpTotal})");
+            await SummarizeAsync(toSummarize);
+            // One digest per batch (up to 100 messages).
+            var moved = caught.Where(i => i.Outcome != "Inbox" && i.Digest.Length == 0).ToList();
+            if (moved.Count > 0)
+            {
+                Data.CatchUpBatches++;
+                var from = caught.Min(i => i.Received).LocalDateTime; var to = caught.Max(i => i.Received).LocalDateTime;
+                await WriteDigestAsync(MakeDigest(moved, $"Catch-up {Data.CatchUpBatches} \u00b7 {from:MMM d}" + (to.Date != from.Date ? $"\u2013{to:MMM d}" : "")));
+            }
+            Data.LastResult = $"Catch-up: {Data.CatchUpCount} of ~{Data.CatchUpTotal} unread sorted" + (Data.CatchUpDone ? " (done)" : _stopCatchUp ? " (stopped)" : "");
+            Save();
+            if (DateTime.Now - (Data.LastRun?.LocalDateTime ?? DateTime.MinValue) >= TimeSpan.FromHours(1)) await NewMailPassAsync(ct);
+        }
+        if (Data.CatchUpDone) SystemEvents.Report("Mail catch-up done", $"{Data.CatchUpCount} unread messages sorted");
     }
 
     private Digest MakeDigest(List<Item> items, string title)
@@ -199,10 +247,10 @@ public sealed class MailTriage(CalendarService graph, TypeSafeClient decision, A
         return g;
     }
 
-    /// <summary>"Catch-up: through Nov 3, 150 so far" (or done), for the page.</summary>
-    public string CatchUpStatus => Data.CatchUpDone ? $"Catch-up done ({Data.CatchUpCount} older messages)"
-        : Data.CatchUpFrom is { } f ? $"Catch-up: {Data.CatchUpCount} older messages so far, next from {f.LocalDateTime:MMM d} (Run now does the next {CatchUpBatch})"
-        : $"Catch-up: Run now goes back {CatchUpDays} days, {CatchUpBatch} at a time";
+    /// <summary>Catch-up state for the page and phone.</summary>
+    public string CatchUpStatus => Data.CatchUpDone && Data.CatchUpUnread ? $"Catch-up done ({Data.CatchUpCount} unread messages sorted)"
+        : Data.CatchUpUnread && Data.CatchUpCount > 0 ? $"Catch-up: {Data.CatchUpCount} of ~{Data.CatchUpTotal} unread sorted" + (CatchingUp ? "" : " (Run now continues)")
+        : "Run now sorts all your unread Inbox mail";
 
     private async Task<Item> TriageOneAsync(JsonNode m, CancellationToken ct)
     {
@@ -447,7 +495,8 @@ public sealed class MailTriage(CalendarService graph, TypeSafeClient decision, A
     {
         try
         {
-            d.Status = "writing"; Save(); Changed?.Invoke();
+            d.Status = "writing"; Save();
+            Report(d.Title.Length > 0 ? $"Writing the {d.Title} digest\u2026" : "Writing the digest\u2026");
             var order = Folders.ToList();
             var items = ItemsOf(d).Where(i => i.Outcome != "Inbox").OrderBy(i => order.IndexOf(i.Outcome)).ToList();
             d.Order = items.Select(i => i.Id).ToList();
@@ -476,6 +525,7 @@ public sealed class MailTriage(CalendarService graph, TypeSafeClient decision, A
             Save(); Changed?.Invoke();
             if (Voice is not null)
             {
+                Report("Recording the digest audio\u2026");
                 // Speech: "Dev. Two PMCollab CI runs failed... ." per block, tags removed.
                 var spoken = blocks.Select(b => "[narrator] " + string.Join(" ", b.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                     .Select(l => Regex.Replace(l, @"^\[[^\]]*\]\s*", ""))));

@@ -160,7 +160,7 @@ data class MailDigest(val id: String = "", val at: String = "", val title: Strin
                       val kept: Int = 0, val audio: Boolean = false, val items: List<MailItem> = emptyList(), val order: List<String> = emptyList())
 
 @Serializable
-data class MailInfo(val available: Boolean = false, val trial: Boolean = false, val busy: Boolean = false, val lastResult: String = "", val catchUp: String = "",
+data class MailInfo(val available: Boolean = false, val trial: Boolean = false, val busy: Boolean = false, val lastResult: String = "", val catchUp: String = "", val progress: String = "", val catchingUp: Boolean = false,
                     val folders: List<String> = emptyList(), val digests: List<MailDigest> = emptyList())
 
 @Serializable
@@ -379,6 +379,7 @@ class SideCarClient(private val pairing: Pairing) {
     suspend fun mailArchiveAll(undo: List<String>? = null) = postJson("/api/mail/archive-all",
         buildJsonObject { if (undo != null) put("undo", kotlinx.serialization.json.JsonArray(undo.map { kotlinx.serialization.json.JsonPrimitive(it) })) })
     suspend fun mailToInbox(id: String) = postJson("/api/mail/item/inbox", buildJsonObject { put("id", id) })
+    suspend fun mailStop() = postJson("/api/mail/stop", buildJsonObject { })
     suspend fun mailRun() = postJson("/api/mail/run", buildJsonObject { })
 
     suspend fun linkedInPerson(url: String): LiPerson = withContext(Dispatchers.IO) {

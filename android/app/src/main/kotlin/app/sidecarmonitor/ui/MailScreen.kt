@@ -70,7 +70,7 @@ fun MailScreen(vm: AppViewModel, onBack: () -> Unit) {
     LaunchedEffect(Unit) {
         while (true) {
             reload()
-            delay(if (info?.busy == true || info?.digests?.any { it.status == "writing" } == true) 10_000 else 60_000)
+            delay(if (info?.busy == true || info?.digests?.any { it.status == "writing" } == true) 3_000 else 60_000)
         }
     }
     LaunchedEffect(playingId) { while (playingId != null) { player?.let { position = it.currentPosition; playing = it.isPlaying }; delay(500) } }
@@ -110,9 +110,10 @@ fun MailScreen(vm: AppViewModel, onBack: () -> Unit) {
                     when {
                         i == null -> "Loading…"
                         !i.available -> "Mail isn't set up on the kiosk."
-                        else -> (if (i.trial) "TRIAL: nothing is moved yet · " else "") + (if (i.busy) "Sorting new mail…" else i.lastResult) + " · hourly · " + i.catchUp
+                        else -> (if (i.trial) "TRIAL: nothing is moved yet · " else "") + (if (i.busy) i.progress.ifEmpty { "Sorting new mail…" } else i.lastResult) + " · hourly · " + i.catchUp
                     }, fontSize = 13.sp, color = SideCarColors.Muted)
                 Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (i?.catchingUp == true) Chip("Stop", SideCarColors.Alert) { scope.launch { vm.kiosk?.mailStop(); note = "Stopping the catch-up\u2026" } }
                     val openCount = i?.digests.orEmpty().count { it.id !in archived }
                     if (openCount > 1) Chip("Archive all ($openCount)", SideCarColors.Emerald) {
                         stop()
@@ -120,7 +121,7 @@ fun MailScreen(vm: AppViewModel, onBack: () -> Unit) {
                         archived.addAll(ids); undoAll = ids; undoId = null; note = "Archived ${ids.size} digests."
                         scope.launch { vm.kiosk?.mailArchiveAll() }
                     }
-                    Chip(if (i?.busy == true) "Sorting…" else "Run now", SideCarColors.PanelBorder) {
+                    Chip(if (i?.busy == true) i.progress.ifEmpty { "Sorting…" } else "Run now", SideCarColors.PanelBorder) {
                         scope.launch { vm.kiosk?.mailRun(); note = "Checking for new mail…"; delay(3_000); reload() }
                     }
                 }
